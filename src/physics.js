@@ -1,5 +1,6 @@
 // All units are metres / seconds. Rendering never changes simulation state.
 export const CONFIG = Object.freeze({lane:3.4,roadHalf:5.25,halfWidth:.83,halfLength:1.85,gravity:11,thrust:25,drain:.43,recharge:.32,maxFall:11.5,maxAngle:25*Math.PI/180,step:1/120});
+export const MIN_MEANINGFUL_AIRTIME = 1;
 export const TYPES = Object.freeze([
   {name:'compact',width:1.65,length:3.3,height:1.25,color:'#e6c179'},
   {name:'coupe',width:1.85,length:4,height:1.1,color:'#df91a1'},
@@ -60,9 +61,10 @@ export function landing(g){
   if(angle>CONFIG.maxAngle){fail(g,'LANDED SIDEWAYS');return;}
   g.y=0;g.vy=0;g.grounded=true;g.impact=Math.min(1,fall/10);g.preload=0;
   let quality='safe';
-  if(fall<4.8&&angle<5*Math.PI/180)quality='perfect';
+  const meaningfulJump=g.airTime>=MIN_MEANINGFUL_AIRTIME;
+  if(meaningfulJump&&fall<4.8&&angle<5*Math.PI/180)quality='perfect';
   else if(fall>7.7||angle>15*Math.PI/180){quality='rough';g.instability=.65;g.vx+=Math.sign(g.roll)*.65;}
-  g.events.push({type:'landing',quality,fall,angle,passed:g.jumpPasses});g.jumpPasses=0;
+  g.events.push({type:'landing',quality,fall,angle,passed:g.jumpPasses,meaningfulJump});g.jumpPasses=0;
 }
 function nextSafeLane(lane,r,{stayChance=0}={}){
   const options=[lane-1,lane+1].filter(n=>n>=-1&&n<=1);

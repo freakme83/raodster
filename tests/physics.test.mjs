@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createGame,step,moveLane,landing,spawnWave,CONFIG,TYPES} from '../src/physics.js';
+import {createGame,step,moveLane,landing,spawnWave,CONFIG,TYPES,MIN_MEANINGFUL_AIRTIME} from '../src/physics.js';
 const fresh=()=>{const g=createGame(19);g.spawnIn=1e9;return g;};
 const run=(g,seconds,thrust=false)=>{for(let t=0;t<seconds&&!g.dead;t+=CONFIG.step)step(g,{thrust},CONFIG.step);return g;};
 const vehicle=(g,options={})=>{g.traffic.push({...TYPES[0],type:0,lane:0,x:0,z:12,passed:false,...options});};
@@ -8,10 +8,16 @@ const vehicle=(g,options={})=>{g.traffic.push({...TYPES[0],type:0,lane:0,x:0,z:1
 test('distance progresses smoothly and pressure recovers only on the ground',()=>{const g=fresh();g.pressure=.2;run(g,1);assert.ok(g.distance>26&&g.distance<29);assert.ok(g.pressure>.5);g.grounded=false;g.y=8;g.vy=0;const p=g.pressure;run(g,.2);assert.equal(g.pressure,p);});
 test('a hold first unloads suspension, then continuously accelerates upward',()=>{const g=fresh();run(g,.05,true);assert.equal(g.y,0);assert.ok(g.preload>0);run(g,.3,true);assert.ok(g.y>.25);assert.ok(g.vy>2);const v=g.vy;run(g,.2,true);assert.ok(g.vy>v);run(g,.2,false);assert.ok(g.vy<v+3);});
 test('longer holds produce higher jumps rather than a fixed impulse',()=>{const a=fresh(),b=fresh();run(a,.3,true);run(b,.65,true);let ah=a.y,bh=b.y;for(let i=0;i<240;i++){step(a,{thrust:false});step(b,{thrust:false});ah=Math.max(ah,a.y);bh=Math.max(bh,b.y);}assert.ok(bh>ah*2);});
-test('a small hop lands safely and ground pressure restores',()=>{const g=fresh();run(g,.34,true);run(g,1.5);assert.equal(g.dead,false);assert.equal(g.grounded,true);run(g,3);assert.equal(g.pressure,1);assert.ok(g.events.some(e=>e.type==='landing'));});
+test('a small hop lands safely without jump feedback and ground pressure restores',()=>{const g=fresh();run(g,.18,true);run(g,1.5);assert.equal(g.dead,false);assert.equal(g.grounded,true);const event=g.events.find(e=>e.type==='landing');assert.ok(event);assert.ok(g.airTime<MIN_MEANINGFUL_AIRTIME);assert.equal(event.meaningfulJump,false);assert.equal(event.quality,'safe');run(g,3);assert.equal(g.pressure,1);});
 test('spending the tank during launch creates a hard-landing failure',()=>{const g=fresh();run(g,2.5,true);assert.ok(g.pressure<.01);run(g,8);assert.equal(g.reason,'HARD LANDING');});
 test('a late thrust burst meaningfully slows descent',()=>{const a=fresh(),b=fresh();for(const g of[a,b]){g.y=3;g.vy=-6;g.grounded=false;}run(a,.2);run(b,.2,true);assert.ok(b.vy-a.vy>4.8);assert.ok(b.y>a.y);});
-test('landing feedback distinguishes perfect, safe, rough, angle crash, and impact crash',()=>{for(const [fall,deg,quality] of [[3,2,'perfect'],[6,10,'safe'],[8,20,'rough'],[3,26,'LANDED SIDEWAYS'],[12,0,'HARD LANDING']]){const g=fresh();g.vy=-fall;g.roll=deg*Math.PI/180;landing(g);assert.equal(g.dead?g.reason:g.events.at(-1).quality,quality);}});
+test('meaningful airtime gates perfect and car-jump feedback without changing landing safety',()=>{
+  for(const [airTime,fall,deg,quality] of [[.99,3,2,'safe'],[1.01,3,2,'perfect'],[1.2,6,10,'safe'],[.2,8,20,'rough'],[1.2,8,20,'rough'],[.2,3,26,'LANDED SIDEWAYS'],[1.2,12,0,'HARD LANDING']]){
+    const g=fresh();g.airTime=airTime;g.vy=-fall;g.roll=deg*Math.PI/180;g.jumpPasses=2;landing(g);
+    assert.equal(g.dead?g.reason:g.events.at(-1).quality,quality);
+    if(!g.dead){assert.equal(g.events.at(-1).meaningfulJump,airTime>=MIN_MEANINGFUL_AIRTIME);assert.equal(g.events.at(-1).passed,2);}
+  }
+});
 test('lane movement is smooth, clamped, and settles without a random road exit',()=>{const g=fresh();moveLane(g,1);assert.equal(g.x,0);run(g,.15);assert.ok(g.x>0&&g.x<3.4);run(g,1);assert.ok(Math.abs(g.x-3.4)<.02);moveLane(g,1);assert.equal(g.lane,1);assert.equal(g.dead,false);});
 test('air steering is slower and still returns to level when input stops',()=>{const g=fresh();g.y=20;g.grounded=false;moveLane(g,1);run(g,.2);assert.ok(g.x>0&&g.x<1.5);assert.ok(Math.abs(g.roll)>0);run(g,.8,true);assert.ok(Math.abs(g.roll)<.15);});
 test('leaving road ends the run even when airborne',()=>{const g=fresh();g.x=5;g.y=5;g.grounded=false;step(g,{});assert.equal(g.reason,'OFF THE ROAD');});
