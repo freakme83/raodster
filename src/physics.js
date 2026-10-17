@@ -10,8 +10,21 @@ export const TYPES = Object.freeze([
 ]);
 export const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 export function randomSeed(seed=Date.now()) { let s=seed>>>0;return()=>{s+=0x6D2B79F5;let t=s;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296;}; }
+// Time, rather than distance, sets the first-minute arc. The asymptote is 76 m/s.
+export const speedAt=time=>27+49*(1-Math.exp(-Math.pow(Math.max(0,time)/52,1.22)));
+export const trafficFlowAt=distance=>10+5*(1-Math.exp(-distance/4000));
+export const closingSpeed=g=>g.speed-trafficFlowAt(g.distance);
+// Decision windows continue tightening gently while speed approaches its ceiling.
+export const intensityAt=time=>1-Math.exp(-Math.max(0,time-10)/80);
+export function encounterGapSeconds(time,kind){
+  const intensity=intensityAt(time);
+  if(kind==='opening')return 5.8;
+  if(kind==='release')return 5.3-.8*intensity;
+  if(kind==='cluster')return 3.15-1.75*intensity;
+  return 4.2-1.85*intensity;
+}
 export function createGame(seed) {
-  return {time:0,distance:0,speed:27,pressure:1,x:0,vx:0,lane:0,y:0,vy:0,roll:0,rollV:0,pitch:0,grounded:true,preload:0,thrusting:false,impact:0,instability:0,traffic:[],events:[],dead:false,reason:null,spawnIn:1.4,waves:0,lastWall:-100,random:randomSeed(seed),jumpPasses:0,airTime:0};
+  return {time:0,distance:0,speed:27,pressure:1,x:0,vx:0,lane:0,y:0,vy:0,roll:0,rollV:0,pitch:0,grounded:true,preload:0,thrusting:false,impact:0,instability:0,traffic:[],events:[],dead:false,reason:null,spawnIn:1.4,waves:0,lastWall:-100,random:randomSeed(seed),jumpPasses:0,airTime:0,pattern:'opening',patternLeft:3,lastSafeLane:0,lastWasWall:false};
 }
 export function moveLane(g,dir){
   if(g.dead)return;
@@ -32,29 +45,56 @@ export function landing(g){
   else if(fall>7.7||angle>15*Math.PI/180){quality='rough';g.instability=.65;g.vx+=Math.sign(g.roll)*.65;}
   g.events.push({type:'landing',quality,fall,angle,passed:g.jumpPasses});g.jumpPasses=0;
 }
+function nextPattern(g){
+  if(g.patternLeft>0)return;
+  if(g.pattern==='opening'){g.pattern='flow';g.patternLeft=3;}
+  else if(g.pattern==='flow'&&g.time>=28){
+    g.pattern='cluster';
+    // Slow, unbounded growth in sequence length after speed has stabilized.
+    g.patternLeft=2+Math.floor(Math.log2(1+Math.max(0,g.time-25)/30));
+  }else if(g.pattern==='flow'){g.patternLeft=2;}
+  else if(g.pattern==='cluster'){g.pattern='release';g.patternLeft=1;}
+  else {g.pattern='flow';g.patternLeft=g.time<60?3:2;}
+}
+function adjacentLane(lane,r){
+  const options=[lane-1,lane+1].filter(n=>n>=-1&&n<=1);
+  return options[Math.floor(r()*options.length)];
+}
 export function spawnWave(g){
-  const r=g.random,d=clamp(g.distance/6000,0,1);
-  const wall=g.distance>650&&g.time-g.lastWall>19&&g.waves%4===3;
-  const count=g.waves===0?1:wall?3:(r()<.22+d*.57?2:1);
-  const lanes=[-1,0,1];for(let i=2;i>0;i--){const j=Math.floor(r()*(i+1));[lanes[i],lanes[j]]=[lanes[j],lanes[i]];}
-  const lead=g.traffic.reduce((z,v)=>Math.max(z,v.z+v.length/2),0);
-  const closing=g.speed*.7;
-  // Entire encounter envelopes are separated, including the longest truck.
-  // Walls are low, aligned, and preceded/followed by a recharge + landing runway.
-  const gap=Math.max(125,closing*(wall?7.5:6.2-d*.65));
-  const z=g.waves===0?100:Math.max(205,lead+gap);
-  for(let i=0;i<count;i++){
-    const maxType=g.distance<280?3:g.distance<900?4:6;
-    const type=g.waves===0?0:wall?Math.floor(r()*2):Math.floor(r()*maxType);
-    const lane=g.waves===0&&i===0?0:lanes[i];
-    g.traffic.push({...TYPES[type],type,lane,x:lane*CONFIG.lane,z:z+(wall?0:i*5),previousZ:z,passed:false,wall,wave:g.waves});
+  nextPattern(g);
+  const r=g.random,kind=g.pattern,slot=g.patternLeft;
+  const wall=kind==='cluster'&&slot===1&&g.time>32&&g.time-g.lastWall>22&&r()<.42;
+  const count=wall?3:kind==='opening'||kind==='release'?1:kind==='cluster'?2:(r()<.5+intensityAt(g.time)*.35?2:1);
+  const maxType=g.distance<280?3:g.distance<900?4:6;
+  const lanes=wall?[-1,0,1]:[];
+  let safeLane=g.lastSafeLane;
+  if(count===2){
+    // Every dense row has an adjacent free lane from the previous route.
+    safeLane=adjacentLane(g.lastSafeLane,r);
+    lanes.push(...[-1,0,1].filter(lane=>lane!==safeLane));
+  }else if(count===1){
+    if(g.waves===0){lanes.push(0);safeLane=-1;}
+    else {lanes.push(g.lastSafeLane);safeLane=adjacentLane(g.lastSafeLane,r);}
   }
+  const types=lanes.map(()=>wall?Math.floor(r()*2):g.waves===0?0:Math.floor(r()*maxType));
+  const lead=g.traffic.reduce((z,v)=>Math.max(z,v.z+v.length/2),0);
+  const closing=closingSpeed(g);
+  // Gap is measured from the previous group's leading edge to this group's
+  // trailing edge. Include vehicle length so mixed long trucks cannot overlap.
+  const seconds=Math.max(encounterGapSeconds(g.time,kind),wall?4.6:0,g.lastWasWall?4.5:0);
+  const gap=closing*seconds;
+  const longestHalf=Math.max(...types.map(i=>TYPES[i].length/2));
+  const z=g.waves===0?100:Math.max(205,lead+gap+longestHalf);
+  lanes.forEach((lane,i)=>{
+    const type=types[i],position=z+(wall?0:i*4);
+    g.traffic.push({...TYPES[type],type,lane,x:lane*CONFIG.lane,z:position,previousZ:position,passed:false,wall,wave:g.waves,kind,gapSeconds:seconds,safeLane});
+  });
   if(wall)g.lastWall=g.time;
-  g.waves++;
+  g.lastWasWall=wall;g.lastSafeLane=safeLane;g.waves++;g.patternLeft--;
 }
 export function step(g,input,dt=CONFIG.step){
   if(g.dead)return;
-  g.time+=dt;g.speed=27+24*(1-Math.exp(-g.distance/3600));g.distance+=g.speed*dt;
+  g.time+=dt;g.speed=speedAt(g.time);g.distance+=g.speed*dt;
   g.impact=Math.max(0,g.impact-dt*3.8);g.instability=Math.max(0,g.instability-dt);
   const wasGrounded=g.grounded;
   g.thrusting=!!input.thrust&&g.pressure>.0001;
@@ -81,7 +121,7 @@ export function step(g,input,dt=CONFIG.step){
   if(Math.abs(g.x)+CONFIG.halfWidth>CONFIG.roadHalf){fail(g,'OFF THE ROAD');return;}
   if(g.dead)return;
   // Shared flow speed prevents different vehicle types from forming unplanned walls.
-  const flow=10+5*(1-Math.exp(-g.distance/4000));
+  const flow=trafficFlowAt(g.distance);
   for(const v of g.traffic){
     v.previousZ=v.z;v.z-=(g.speed-flow)*dt;
     const half=v.length/2+CONFIG.halfLength;

@@ -35,7 +35,7 @@ Steering and thrust support simultaneous pointers. Sound can be toggled on the p
 - Continuous thrust, launch suspension preload, altitude-dependent lift, descent braking, three pressure segments, and ground recharge.
 - Deterministic landings based on roll and vertical speed; suspension compression, slip on rough landings, landing shadow, restrained camera response, and optional haptics.
 - Six traffic shapes: compact, coupe, sedan, van, truck, and long truck.
-- Procedural encounters, gradual speed/density increase, low aligned all-lane jump blocks, and clear landing/recharge spaces.
+- Bounded acceleration, alternating traffic waves, shifting safe lanes, low aligned all-lane jump blocks, and clear landing/recharge spaces.
 - Collision checks against full vehicle footprints and roof heights, road-edge failure, unsafe-angle and hard-impact crashes.
 - Distance, persistent local best, perfect landing / close call / car-jump feedback, brief crash pose, immediate restart.
 - Procedural road hum, gas hiss, tire movement, recharge, landing and crash audio, plus a quiet original electronic sequence.
@@ -63,13 +63,13 @@ Upload the contents of `dist/` to any static host. All asset paths are relative,
 
 Physics runs at 120 Hz, independently of display refresh. Frame time is capped at 50 ms to prevent a stalled/backgrounded frame from teleporting through traffic. Long stalls slow the run rather than skipping collisions. Traffic and scenery are discarded behind the player, and coordinates stay relative to the car.
 
-Current tuning: 27–51 m/s forward speed, 0.11 s launch preload, approximately 2.3 s of full pressure and 3.1 s empty-to-full ground recharge. A gentle rise drag and diminishing lift keep the car inside the readable camera envelope without a hard invisible ceiling. Perfect landings require less than 5° roll and a descent below 4.8 m/s; rough landings begin above 15° or 7.7 m/s; more than 25° or 11.5 m/s ends the run. Finish lane changes before touchdown.
+Current tuning: 27 m/s at the start, roughly 36 m/s at 15 seconds and 61 m/s at one minute, tapering smoothly toward 76 m/s. Launch preload is 0.11 s, with approximately 2.3 s of full pressure and 3.1 s empty-to-full ground recharge. A gentle rise drag and diminishing lift keep the car inside the readable camera envelope without a hard invisible ceiling. Perfect landings require less than 5° roll and a descent below 4.8 m/s; rough landings begin above 15° or 7.7 m/s; more than 25° or 11.5 m/s ends the run. Finish lane changes before touchdown.
 
-Each generated encounter has at least one open lane unless explicitly marked as a jump wall. Walls contain only low cars and have a minimum time separation. Encounter envelopes are spaced by at least 125 metres, increasing with speed; all traffic shares a bounded flow speed to prevent incidental overtaking from generating unplanned impossible blocks. Difficulty increases density and vehicle length, not random physics errors.
+Encounters cycle through opening, flow, dense cluster, and release phases. Dense sequences gradually grow longer after speed settles, while the release phase always restores a sparse section. Gaps are specified in seconds of relative closing speed and shrink progressively; adjacent safe lanes connect two-car rows. Each generated encounter has an open lane unless marked as a jump wall. Walls contain only low cars, have at least 4.6 seconds of clear approach, and are followed by at least 4.5 seconds of landing/recovery space. Shared traffic flow prevents incidental overtaking from generating unplanned impossible blocks. Difficulty increases through connected decisions, not random physics errors.
 
 ## Verification and limits
 
-`npm test` covers thrust duration, descent braking, pressure recharge, lane motion, landing categories, roof/road/swept collisions, crash freezing, reproducible traffic, encounter spacing, a successful three-lane jump, and DOM-harness checks of touch cancellation, simultaneous thumbs, pause/resume, persistence and retry.
+`npm test` covers thrust duration, descent braking, pressure recharge, lane motion, landing categories, roof/road/swept collisions, crash freezing, a successful three-lane jump, speed progression, hundreds of deterministic traffic schedules, connected lane routes, encounter timing, dense/release rhythm and protected jump walls. The DOM harness checks touch cancellation, simultaneous thumbs, pause/resume, persistence and retry.
 
 Portrait and landscape scenes were rendered and visually inspected with a software Canvas implementation. **This prototype has not yet been playtested on a physical phone or in a real browser.** DOM-harness checks do not validate browser layout, browser audio policies, or actual touch feel. Before treating it as release-ready, test iOS Safari and Android Chrome, including rotation, safe areas, multi-touch, app switching and audio interruption. Device performance and fun still need hands-on validation.
 
