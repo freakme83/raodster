@@ -10,18 +10,18 @@ export const TYPES = Object.freeze([
 ]);
 export const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 export function randomSeed(seed=Date.now()) { let s=seed>>>0;return()=>{s+=0x6D2B79F5;let t=s;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296;}; }
-// Time, rather than distance, sets the first-minute arc. The asymptote is 76 m/s.
-export const speedAt=time=>27+49*(1-Math.exp(-Math.pow(Math.max(0,time)/52,1.22)));
+// A sharper first-minute pull tapers smoothly into an 80 m/s ceiling.
+export const speedAt=time=>27+53*(1-Math.exp(-Math.pow(Math.max(0,time)/34,1.2)));
 export const trafficFlowAt=distance=>10+5*(1-Math.exp(-distance/4000));
 export const closingSpeed=g=>g.speed-trafficFlowAt(g.distance);
 // Decision windows continue tightening gently while speed approaches its ceiling.
-export const intensityAt=time=>1-Math.exp(-Math.max(0,time-10)/80);
+export const intensityAt=time=>1-Math.exp(-Math.max(0,time-8)/35);
 export function encounterGapSeconds(time,kind){
   const intensity=intensityAt(time);
   if(kind==='opening')return 5.8;
-  if(kind==='release')return 5.3-.8*intensity;
-  if(kind==='cluster')return 3.15-1.75*intensity;
-  return 4.2-1.85*intensity;
+  if(kind==='release')return 3.4-.55*intensity;
+  if(kind==='cluster')return 2.2-1.3*intensity;
+  return 3.6-1.9*intensity;
 }
 export function createGame(seed) {
   return {time:0,distance:0,speed:27,pressure:1,x:0,vx:0,lane:0,y:0,vy:0,roll:0,rollV:0,pitch:0,grounded:true,preload:0,thrusting:false,impact:0,instability:0,traffic:[],events:[],dead:false,reason:null,spawnIn:1.4,waves:0,lastWall:-100,random:randomSeed(seed),jumpPasses:0,airTime:0,pattern:'opening',patternLeft:3,lastSafeLane:0,lastWasWall:false};
@@ -48,33 +48,34 @@ export function landing(g){
 function nextPattern(g){
   if(g.patternLeft>0)return;
   if(g.pattern==='opening'){g.pattern='flow';g.patternLeft=3;}
-  else if(g.pattern==='flow'&&g.time>=28){
+  else if(g.pattern==='flow'&&g.time>=16){
     g.pattern='cluster';
-    // Slow, unbounded growth in sequence length after speed has stabilized.
-    g.patternLeft=2+Math.floor(Math.log2(1+Math.max(0,g.time-25)/30));
+    // Short attack sequences appear early and keep extending on very long runs.
+    g.patternLeft=3+Math.floor(Math.log2(1+Math.max(0,g.time-15)/35));
   }else if(g.pattern==='flow'){g.patternLeft=2;}
   else if(g.pattern==='cluster'){g.pattern='release';g.patternLeft=1;}
   else {g.pattern='flow';g.patternLeft=g.time<60?3:2;}
 }
-function adjacentLane(lane,r){
+function nextSafeLane(lane,r,{stayChance=0}={}){
   const options=[lane-1,lane+1].filter(n=>n>=-1&&n<=1);
+  if(options.length&&r()<stayChance)return lane;
   return options[Math.floor(r()*options.length)];
 }
 export function spawnWave(g){
   nextPattern(g);
   const r=g.random,kind=g.pattern,slot=g.patternLeft;
-  const wall=kind==='cluster'&&slot===1&&g.time>32&&g.time-g.lastWall>22&&r()<.42;
-  const count=wall?3:kind==='opening'||kind==='release'?1:kind==='cluster'?2:(r()<.5+intensityAt(g.time)*.35?2:1);
+  const wall=kind==='cluster'&&slot===1&&g.time>22&&g.time-g.lastWall>22&&r()<.42;
+  const count=wall?3:kind==='opening'||kind==='release'?1:kind==='cluster'?2:(g.time>=9||r()<.35+intensityAt(g.time)*.35?2:1);
   const maxType=g.distance<280?3:g.distance<900?4:6;
   const lanes=wall?[-1,0,1]:[];
   let safeLane=g.lastSafeLane;
   if(count===2){
     // Every dense row has an adjacent free lane from the previous route.
-    safeLane=adjacentLane(g.lastSafeLane,r);
+    safeLane=nextSafeLane(g.lastSafeLane,r,{stayChance:.24});
     lanes.push(...[-1,0,1].filter(lane=>lane!==safeLane));
   }else if(count===1){
     if(g.waves===0){lanes.push(0);safeLane=-1;}
-    else {lanes.push(g.lastSafeLane);safeLane=adjacentLane(g.lastSafeLane,r);}
+    else {lanes.push(g.lastSafeLane);safeLane=nextSafeLane(g.lastSafeLane,r);}
   }
   const types=lanes.map(()=>wall?Math.floor(r()*2):g.waves===0?0:Math.floor(r()*maxType));
   const lead=g.traffic.reduce((z,v)=>Math.max(z,v.z+v.length/2),0);
