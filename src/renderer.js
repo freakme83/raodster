@@ -1,4 +1,5 @@
 import {clamp} from './physics.js';
+import {CHARGE} from './charge.js';
 const mix=(a,b,t)=>a+(b-a)*t;
 function shade(hex,f){const n=parseInt(hex.slice(1),16);return `rgb(${Math.round((n>>16)*f)},${Math.round((n>>8&255)*f)},${Math.round((n&255)*f)})`;}
 export class Renderer {
@@ -118,20 +119,19 @@ export class Renderer {
   }
   chargeOrb(orb,time){
     const p=this.point(orb.x,orb.y,orb.z);if(!p)return;
-    const c=this.c,r=Math.min(18,Math.max(4.2,p.s*1.05));
-    const glow=c.createRadialGradient(p.x,p.y,0,p.x,p.y,r*2.1);
-    glow.addColorStop(0,'#fff7d699');glow.addColorStop(1,'#f7e7ad00');
-    c.fillStyle=glow;c.fillRect(p.x-r*2.1,p.y-r*2.1,r*4.2,r*4.2);
+    const c=this.c,r=Math.min(16,Math.max(4.2,p.s*.8));
+    const halo=r*1.33,glow=c.createRadialGradient(p.x,p.y,r*.65,p.x,p.y,halo);
+    glow.addColorStop(0,'#d6a55a35');glow.addColorStop(1,'#d6a55a00');
+    c.fillStyle=glow;c.fillRect(p.x-halo,p.y-halo,halo*2,halo*2);
     const shimmer=this.reducedMotion?1:.95+.05*Math.sin(time*8+orb.index*1.7);
     const size=r*shimmer;
-    this.poly([{x:p.x,y:p.y-size},{x:p.x+size*.77,y:p.y-size*.23},{x:p.x+size*.72,y:p.y+size*.47},{x:p.x,y:p.y+size},{x:p.x-size*.72,y:p.y+size*.47},{x:p.x-size*.77,y:p.y-size*.23}],'#f3d79b');
-    this.poly([{x:p.x,y:p.y-size*.69},{x:p.x+size*.4,y:p.y},{x:p.x,y:p.y+size*.56},{x:p.x-size*.4,y:p.y}],'#fffbed');
+    this.poly([{x:p.x,y:p.y-size},{x:p.x+size*.77,y:p.y-size*.23},{x:p.x+size*.72,y:p.y+size*.47},{x:p.x,y:p.y+size},{x:p.x-size*.72,y:p.y+size*.47},{x:p.x-size*.77,y:p.y-size*.23}],'#d49e57');
+    this.poly([{x:p.x,y:p.y-size*.69},{x:p.x+size*.4,y:p.y},{x:p.x,y:p.y+size*.56},{x:p.x-size*.4,y:p.y}],'#edd19c');
   }
   chargePop(pop){
     const p=this.point(pop.x,pop.y,pop.z);if(!p)return;
-    const c=this.c,fade=1-pop.age/.25,size=Math.max(3,p.s*.48)*(1+pop.age*2);
-    c.strokeStyle=`rgba(255,247,215,${fade*.7})`;c.lineWidth=Math.max(1,p.s*.04);
-    c.beginPath();c.arc(p.x,p.y,size,0,Math.PI*2);c.stroke();
+    const t=Math.min(1,pop.age/CHARGE.popDuration),size=Math.min(14,Math.max(4,p.s*.65))*(1-t*.72);
+    this.poly([{x:p.x,y:p.y-size},{x:p.x+size*.65,y:p.y},{x:p.x,y:p.y+size},{x:p.x-size*.65,y:p.y}],`rgba(244,209,147,${.8*(1-t)})`);
   }
   scenery(g,faces){
     for(let i=0;i<19;i++){

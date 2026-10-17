@@ -37,3 +37,17 @@ test('player shadow follows a tapered road footprint and fades with height',()=>
   assert.ok(alpha(high.color)<alpha(near.color));
   assert.ok(high.blur>near.blur&&span(high.points,0)>span(near.points,0));
 });
+
+test('orb art keeps a compact dim halo and a matte core at preview distance',()=>{
+  const r=renderer(),fills=[],colors=[],stops=[];let radii;
+  r.point=()=>({x:180,y:280,s:5});r.c.fillRect=()=>{};
+  r.c.createRadialGradient=(...args)=>{radii=[args[2],args[5]];return{addColorStop:(at,color)=>stops.push({at,color})};};
+  r.poly=(points,color)=>{fills.push(points);colors.push(color);};
+  r.chargeOrb({x:0,y:3,z:80,index:0},1);
+  const radius=Math.max(...fills[0].map(p=>Math.abs(p.y-280)));
+  assert.ok(radii[1]<=radius*1.45,'halo stays close to the solid orb');
+  assert.ok(parseInt(stops[0].color.slice(-2),16)<.25*255,'halo opacity stays restrained');
+  assert.ok(colors.every(color=>!/^#f{2}/i.test(color)),'the core is amber rather than white-hot');
+  const width=Math.max(...fills[0].map(p=>p.x))-Math.min(...fills[0].map(p=>p.x));
+  assert.ok(width>=6,'the silhouette remains visible at mobile preview size');
+});

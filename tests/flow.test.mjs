@@ -4,6 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {Renderer} from '../src/renderer.js';
+import {spawnChargeArc} from '../src/charge.js';
 class Element {
   constructor(id=''){this.id=id;this.hidden=false;this.style={};this.textContent='';this.events={};this.attrs={};this.classes=new Set();this.classList={add:x=>this.classes.add(x),remove:x=>this.classes.delete(x),toggle:(x,v)=>v?this.classes.add(x):this.classes.delete(x)};}
   addEventListener(type,fn){(this.events[type]??=[]).push(fn);}
@@ -62,6 +63,13 @@ test('touch, cancel, pause, crash, persistence, and retry work together',async()
   game.grounded=false;game.y=.005;game.vy=-3;game.roll=0;game.rollV=0;game.airTime=1.05;frames(1);
   assert.equal(el('feedback').textContent,'PERFECT LANDING');assert.equal(el('feedback').classes.has('show'),true);
   el('retry').fire('click');frames(1);game.time=5.6;frames(1);assert.equal(el('thrust-cue').hidden,true,'the teaching cue expires');
+  game.spawnIn=Infinity;game.nextChargeArcAt=Infinity;game.charge=.5;
+  spawnChargeArc(game);const orb=game.chargeArcs[0].orbs[0];
+  game.grounded=false;game.y=.8;game.vy=0;game.x=orb.x;game.lane=Math.round(orb.x/3.4);orb.z=0;
+  frames(1);assert.equal(orb.collected,true);assert.ok(game.charge>.5);
+  assert.equal(el('charge-meter').classes.has('pickup'),true,'a pickup pulses the meter immediately');
+  assert.ok(Number(el('charge-meter').attrs['aria-valuenow'])>50);
+  frames(20);assert.equal(el('charge-meter').classes.has('pickup'),false,'pickup pulse is brief');
   game.spawnIn=Infinity;game.nextChargeArcAt=Infinity;game.charge=.001;
   frames(10);assert.equal(el('crash-reason').textContent,'OUT OF CHARGE');
   assert.equal(el('charge-meter').attrs['aria-valuenow'],0);

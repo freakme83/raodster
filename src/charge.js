@@ -6,9 +6,12 @@ export const CHARGE = Object.freeze({
   lowThreshold:.23,
   firstArcWindow:[10,15],
   repeatArcWindow:[7.8,10.6],
-  pickupX:.95,
-  pickupY:.82,
-  pickupZ:2.6
+  pickupCenterY:.62,
+  pickupX:1.18,
+  pickupY:1.08,
+  pickupZ:3.15,
+  minimumPickupAltitude:.45,
+  popDuration:.22
 });
 
 export const ARC_SHAPES=Object.freeze(['simple','cross','high','greedy']);
@@ -40,17 +43,40 @@ export function spawnChargeArc(g){
   return true;
 }
 
-export function advanceCharge(g,dt){
+// Sweep the orb against the car's visible body volume over this fixed step.
+// The relative segment also catches a fast pass that ends beyond the near face.
+function crossesCollector(g,orb,previous,dt){
+  if(g.grounded)return false;
+  const start=[orb.x-previous.x,orb.y-previous.y-CHARGE.pickupCenterY,orb.z];
+  const end=[orb.x-g.x,orb.y-g.y-CHARGE.pickupCenterY,orb.z-g.speed*dt];
+  const half=[CHARGE.pickupX,CHARGE.pickupY,CHARGE.pickupZ];
+  let entry=0,exit=1;
+  for(let axis=0;axis<3;axis++){
+    const delta=end[axis]-start[axis];
+    if(Math.abs(delta)<1e-9){if(Math.abs(start[axis])>half[axis])return false;continue;}
+    const a=(-half[axis]-start[axis])/delta,b=(half[axis]-start[axis])/delta;
+    entry=Math.max(entry,Math.min(a,b));exit=Math.min(exit,Math.max(a,b));
+    if(entry>exit)return false;
+  }
+  const rise=g.y-previous.y;
+  if(Math.abs(rise)<1e-9)return previous.y>=CHARGE.minimumPickupAltitude;
+  const threshold=(CHARGE.minimumPickupAltitude-previous.y)/rise;
+  if(rise>0)entry=Math.max(entry,threshold);
+  else exit=Math.min(exit,threshold);
+  return entry<=exit;
+}
+
+export function advanceCharge(g,dt,previous={x:g.x,y:g.y}){
   g.charge=Math.max(0,g.charge-CHARGE.drainPerSecond*dt);
   if(g.time>=g.nextChargeArcAt){
     if(spawnChargeArc(g))g.nextChargeArcAt=g.time+nextArcDelay(g.chargeRandom);
     else g.nextChargeArcAt=g.time+1.25;
   }
   for(const arc of g.chargeArcs)for(const orb of arc.orbs){
+    const touched=!orb.collected&&!orb.missed&&crossesCollector(g,orb,previous,dt);
     orb.z-=g.speed*dt;
     if(orb.collected||orb.missed)continue;
-    if(orb.z< -CHARGE.pickupZ){orb.missed=true;continue;}
-    if(g.grounded||Math.abs(orb.z)>CHARGE.pickupZ||Math.abs(g.x-orb.x)>CHARGE.pickupX||Math.abs(g.y-orb.y)>CHARGE.pickupY)continue;
+    if(!touched){if(orb.z< -CHARGE.pickupZ)orb.missed=true;continue;}
     orb.collected=true;arc.collected++;g.charge=Math.min(1,g.charge+CHARGE.perOrb);
     const prior=g.orbChain;
     const chain=prior&&prior.arcId===arc.id&&prior.index===orb.index-1&&g.time-prior.time<.7?prior.count+1:1;
@@ -61,7 +87,7 @@ export function advanceCharge(g,dt){
   }
   g.chargeArcs=g.chargeArcs.filter(arc=>arc.orbs.at(-1).z>-25);
   for(const pop of g.orbPops){pop.z-=g.speed*dt;pop.age+=dt;}
-  g.orbPops=g.orbPops.filter(pop=>pop.age<.25);
+  g.orbPops=g.orbPops.filter(pop=>pop.age<CHARGE.popDuration);
   if(g.charge>CHARGE.lowThreshold+.08)g.lowChargeWarned=false;
   if(g.charge>0&&g.charge<CHARGE.lowThreshold&&!g.lowChargeWarned){g.lowChargeWarned=true;g.events.push({type:'lowCharge'});}
   return g.charge===0;

@@ -54,6 +54,35 @@ test('collection needs a real airborne overlap, missed orbs stay missed, and arc
   assert.equal(g.orbPops.length,0);
 });
 
+test('the airborne body collects below the orb center, while clear vertical and side misses do not',()=>{
+  const g=isolated(9);g.time=20;g.speed=70;spawnChargeArc(g);
+  const [body,above,side]=g.chargeArcs[0].orbs;
+  g.grounded=false;g.y=.3;g.x=body.x;body.z=0;
+  advanceCharge(g,CONFIG.step);assert.equal(body.collected,false,'a ground-adjacent hop cannot skim an elevated arc');
+  g.y=.75;g.vy=0;g.lane=Math.round(body.x/CONFIG.lane);g.charge=.4;
+  body.z=1.3;const before=g.charge;step(g,{});
+  assert.equal(body.collected,true,'the roof/body overlaps although the base lies below the old pickup radius');
+  close(g.charge,before-CHARGE.drainPerSecond*CONFIG.step+CHARGE.perOrb);
+  assert.equal(g.events.filter(e=>e.type==='orb').length,1,'feedback fires in the same simulation step');
+  above.z=0;g.x=above.x;g.y=above.y-CHARGE.pickupCenterY+CHARGE.pickupY+.2;
+  advanceCharge(g,CONFIG.step);assert.equal(above.collected,false,'orb above the visible car stays out');
+  side.z=0;g.y=side.y-CHARGE.pickupCenterY;g.x=side.x+CHARGE.pickupX+.2;
+  advanceCharge(g,CONFIG.step);assert.equal(side.collected,false,'clear lateral miss stays out');
+});
+
+test('high-speed swept contact before the far face collects; a high-speed side miss remains missed',()=>{
+  const g=isolated(10);g.time=20;g.speed=80;spawnChargeArc(g);
+  const [hit,miss]=g.chargeArcs[0].orbs;
+  g.grounded=false;g.y=.85;g.x=hit.x;g.charge=.4;
+  hit.z=-CHARGE.pickupZ+g.speed*CONFIG.step*.5;
+  const before=g.charge;advanceCharge(g,CONFIG.step);
+  assert.ok(hit.z< -CHARGE.pickupZ,'the current-frame center already passed the pickup region');
+  assert.equal(hit.collected,true);close(g.charge,before-CHARGE.drainPerSecond*CONFIG.step+CHARGE.perOrb);
+  miss.z=-CHARGE.pickupZ+g.speed*CONFIG.step*.5;g.x=miss.x+CHARGE.pickupX+.12;
+  advanceCharge(g,CONFIG.step);assert.equal(miss.collected,false);assert.equal(miss.missed,true);
+  assert.equal(g.events.filter(e=>e.type==='orb').length,1);
+});
+
 test('all four six-orb shapes are elevated, smooth, and stay over the road',()=>{
   const seen=new Set();
   for(let seed=0;seed<80;seed++){

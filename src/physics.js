@@ -177,6 +177,7 @@ export function step(g,input,dt=CONFIG.step){
   if(g.dead)return;
   g.time+=dt;g.speed=speedAt(g.time);g.distance+=g.speed*dt;
   g.impact=Math.max(0,g.impact-dt*3.8);g.instability=Math.max(0,g.instability-dt);
+  const previousPosition={x:g.x,y:g.y};
   const wasGrounded=g.grounded;
   g.thrusting=!!input.thrust&&g.pressure>.0001;
   if(g.thrusting){
@@ -217,5 +218,5 @@ export function step(g,input,dt=CONFIG.step){
   g.traffic=g.traffic.filter(v=>v.z>-35);
   g.spawnIn-=dt;
   if(g.spawnIn<=0)g.spawnIn=spawnWave(g);
-  if(advanceCharge(g,dt))fail(g,'OUT OF CHARGE');
+  if(advanceCharge(g,dt,previousPosition))fail(g,'OUT OF CHARGE');
 }
