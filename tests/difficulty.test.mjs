@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createGame,step,moveLane,speedAt,closingSpeed,encounterGapSeconds,CONFIG,TYPES} from '../src/physics.js';
+import {createGame,step,moveLane,speedAt,closingSpeed,encounterGapSeconds,TRAFFIC_SPEED_RANGES,CONFIG,TYPES} from '../src/physics.js';
 
 // Run the actual fixed-step scheduler with a harmless high flight so every
 // seeded traffic choice can be inspected without building an AI driver.
@@ -19,7 +19,7 @@ function observe(seed,seconds){
       const preceding=g.traffic.filter(v=>v.wave===before-1);
       const prevFront=Math.max(0,...preceding.map(v=>v.z+v.length/2));
       const nextRear=Math.min(...vehicles.map(v=>v.z-v.length/2));
-      groups.push({time:g.time,speed:g.speed,closing:closingSpeed(g),vehicles,lanes:vehicles.map(v=>v.lane),kind:vehicles[0].kind,wall:vehicles[0].wall,safeLane:vehicles[0].safeLane,gapSeconds:vehicles[0].gapSeconds,spawnZ:Math.min(...vehicles.map(v=>v.z)),clearance:(nextRear-prevFront)/closingSpeed(g)});
+      groups.push({wave:before,time:g.time,speed:g.speed,closing:closingSpeed(g),vehicles,lanes:vehicles.map(v=>v.lane),kind:vehicles[0].kind,wall:vehicles[0].wall,safeLane:vehicles[0].safeLane,gapSeconds:vehicles[0].gapSeconds,spawnZ:Math.min(...vehicles.map(v=>v.z)),envelopeGap:nextRear-prevFront,clearance:(nextRear-prevFront)/closingSpeed(g),optionalSequence:vehicles[0].optionalSequence,optionalRow:vehicles[0].optionalRow});
     }
     assert.equal(g.dead,false,`observer crashed for seed ${seed} at ${g.time}`);
   }
@@ -88,7 +88,7 @@ test('visible mid/late traffic is substantially denser than the previous PR base
 
 test('density pressure is irregular, deterministic, and no longer a fixed phase cycle',()=>{
   const a=observe(23,220),b=observe(23,220);
-  const signature=groups=>groups.map(x=>[x.kind,x.lanes,x.vehicles.map(v=>v.type),x.wall,Math.round(x.time*120)]);
+  const signature=groups=>groups.map(x=>[x.kind,x.lanes,x.vehicles.map(v=>[v.type,Math.round(v.worldSpeed*100)]),x.wall,Math.round(x.time*120)]);
   assert.deepEqual(signature(a.groups),signature(b.groups));
   const peaks=sequences(a.groups,'peak');
   assert.ok(peaks.length>=3,`only ${peaks.length} peak sequences`);
@@ -157,7 +157,7 @@ test('160 seeded schedules keep routes connected, traffic readable, and jump wal
         lastWall=x.time;
       }
       if(i>0){
-        assert.ok(x.clearance>=x.gapSeconds-.08,`overlapping vehicle envelopes seed ${seed} wave ${i}`);
+        assert.ok(x.envelopeGap>0,`overlapping row envelopes seed ${seed} wave ${i}`);
         for(const v of x.vehicles){
           const reactionDistance=v.z-v.length/2-CONFIG.halfLength;
           assert.ok(reactionDistance>=x.closing*2.5,`traffic appeared too close seed ${seed}`);
@@ -169,6 +169,94 @@ test('160 seeded schedules keep routes connected, traffic readable, and jump wal
   assert.ok(vehicles>30000,`traffic count ${vehicles}`);
   assert.ok(longTrucks>100,`late vehicle mix lacks long trucks: ${longTrucks}`);
   assert.ok(holds>0&&left>0&&right>0,{holds,left,right});
+});
+
+test('traffic speed tendencies are seeded, bounded, and create evolving gaps',()=>{
+  const samples=Array.from({length:6},()=>[]);
+  for(let seed=0;seed<24;seed++){
+    const {groups}=observe(seed,100);
+    for(const group of groups)for(const v of group.vehicles){
+      const [min,max]=TRAFFIC_SPEED_RANGES[v.type];
+      assert.ok(v.worldSpeed>=min&&v.worldSpeed<=max,`${v.name} speed ${v.worldSpeed}`);
+      samples[v.type].push(v.worldSpeed);
+    }
+  }
+  assert.ok(samples.every(list=>list.length>50));
+  const mean=list=>list.reduce((sum,v)=>sum+v,0)/list.length;
+  assert.ok(mean(samples[0])-mean(samples[5])>2,'long trucks should trend slower than compacts');
+  const g=createGame(9),slow={...TYPES[5],worldSpeed:9.2,z:400,lane:-1,previousZ:400},fast={...TYPES[1],worldSpeed:18.8,z:400,lane:1,previousZ:400};
+  g.traffic.push(slow,fast);g.spawnIn=1e9;
+  step(g,{});const initialDifference=slow.z-fast.z;
+  for(let i=0;i<120;i++)step(g,{});
+  assert.ok(Math.abs((slow.z-fast.z)-initialDifference)>4.5,'different speeds should visibly change relative gaps');
+});
+
+test('same-lane projected traffic envelopes stay separated in the forward view',()=>{
+  let checked=0;
+  for(let seed=0;seed<48;seed++){
+    const g=createGame(seed);g.grounded=false;
+    for(let i=0;i<115/CONFIG.step;i++){
+      g.y=100;step(g,{});
+      const visible=g.traffic.filter(v=>v.z<500&&v.z>-25);
+      for(let a=0;a<visible.length;a++)for(let b=a+1;b<visible.length;b++){
+        const x=visible[a],y=visible[b];if(x.lane!==y.lane)continue;
+        assert.ok(Math.abs(x.z-y.z)>=(x.length+y.length)/2-1,`same-lane envelopes overlapped seed ${seed} at ${g.time.toFixed(1)}s`);
+        checked++;
+      }
+      const blocking=visible.filter(v=>Math.abs(v.z)<v.length/2+CONFIG.halfLength);
+      if(new Set(blocking.map(v=>v.lane)).size===3)
+        assert.ok(blocking.every(v=>v.wall&&v.height<=1.25),`projected all-lane barrier outside a jump wall, seed ${seed} at ${g.time.toFixed(1)}s`);
+    }
+  }
+  assert.ok(checked>5000);
+});
+
+test('optional jump sequences preserve a changing ground route and a bounded air window',()=>{
+  let found=0,longVehicleRows=0,routeChanges=0,airCandidate=null;
+  for(let seed=0;seed<80;seed++){
+    const {groups}=observe(seed,180);
+    const candidates=sequences(groups,'optional');
+    for(const seq of candidates){
+      if(seq.length!==3)continue;
+      const lastIndex=groups.findIndex(row=>row.wave===seq.at(-1).vehicles[0].wave);
+      if(!groups[lastIndex+1])continue;
+      found++;
+      assert.ok(seq.every((row,i)=>row.optionalSequence===seq[0].optionalSequence&&row.optionalRow===i));
+      assert.ok(seq.every(row=>row.vehicles.length===2&&!row.wall));
+      assert.ok(seq.every((row,i)=>i===0||Math.abs(row.safeLane-seq[i-1].safeLane)<=1));
+      const changes=seq.slice(1).filter((row,i)=>row.safeLane!==seq[i].safeLane).length;
+      assert.ok(changes>=2,'ground routing should demand repeated lane choices');
+      routeChanges+=changes;
+      longVehicleRows+=seq.filter(row=>row.vehicles.some(v=>v.length>=7)).length;
+      const span=seq.at(-1).time-seq[0].time;
+      assert.ok(span>=.8&&span<=1.5,`optional sequence span ${span.toFixed(2)}s`);
+      assert.ok(seq.every(row=>row.gapSeconds<=.55),`air route cadence ${seq.map(row=>row.gapSeconds).join(',')}`);
+      assert.ok(seq.every(row=>row.vehicles.every(v=>v.height<=3.15&&v.worldSpeed>=9&&v.worldSpeed<=19)));
+      assert.equal(groups[lastIndex+1]?.kind,'recovery','optional air routes need a short landing window');
+      assert.equal(groups[lastIndex+1]?.vehicles.length,1);
+      airCandidate??=seq;
+    }
+  }
+  assert.ok(found>=15,`only ${found} optional sequences`);
+  assert.ok(longVehicleRows>20,'optional routes should sometimes include long ground blockers');
+  assert.ok(routeChanges>=found*2);
+  assert.ok(airCandidate);
+  const g=createGame(1);g.time=70;g.distance=3500;g.speed=speedAt(g.time);g.spawnIn=1e9;
+  let z=95;
+  for(let i=0;i<airCandidate.length;i++){
+    const row=airCandidate[i];
+    if(i>0)z+=row.gapSeconds*(g.speed-row.vehicles.reduce((sum,v)=>sum+v.worldSpeed,0)/row.vehicles.length);
+    for(const v of row.vehicles)g.traffic.push({...v,z:z+(v.lane===1?4:0),previousZ:z+(v.lane===1?4:0),passed:false});
+  }
+  for(let i=0;i<900&&!g.dead;i++){
+    const t=i*CONFIG.step;
+    const brake=!g.grounded&&g.vy<-3.2&&g.y<g.vy*g.vy/28+.7;
+    step(g,{thrust:t<1.35||brake});
+    if(g.grounded&&t>1.6)break;
+  }
+  assert.equal(g.dead,false,`optional air route failed: ${g.reason}`);
+  assert.ok(g.grounded&&g.pressure>.1,'the jump route should leave a controlled landing and pressure reserve');
+  assert.equal(g.traffic.some(v=>v.optionalSequence===airCandidate[0].optionalSequence),false,'all candidate rows should be passed before landing');
 });
 
 test('a generated late jump wall can still be crossed with a modest pulse and landing reserve',()=>{
