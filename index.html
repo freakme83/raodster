@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#393848">
+  <meta name="description" content="Dodge. Lift. Land. An endless cold-gas arcade racer. How far can you go?">
+  <title>AIRSHIFT — One more run.</title>
+  <link rel="icon" type="image/svg+xml" href="./icon.svg">
+  <link rel="stylesheet" href="./src/style.css">
+</head>
+<body>
+  <main id="game" aria-label="AIRSHIFT arcade driving game">
+    <canvas id="scene" aria-label="Three-lane sunset highway. Use the buttons below or arrow keys and space to play."></canvas>
+    <div class="grain" aria-hidden="true"></div>
+    <header id="hud" hidden>
+      <div class="distance"><span class="eyebrow">DISTANCE</span><div><span id="distance">0.00</span><span class="unit"> KM</span></div></div>
+      <div class="pressure"><span class="eyebrow" id="pressure-label">PRESSURE</span><div class="segments" role="meter" aria-label="Thruster pressure" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"><i><b></b></i><i><b></b></i><i><b></b></i></div></div>
+    </header>
+    <div id="feedback" aria-live="polite"></div>
+    <div id="flight-hint" hidden>RELEASE TO FALL · HOLD TO SOFTEN</div>
+    <section id="intro" class="overlay">
+      <div class="brand"><span class="eyebrow">COLD GAS. OPEN ROAD.</span><h1>AIR<span>SHIFT</span><sup>↗</sup></h1><p>DODGE. LIFT. LAND.</p><div class="record">BEST <span id="intro-best">0.00</span> KM</div></div>
+      <div class="start-group"><button id="start" class="primary">TAP TO DRIVE <span>↗</span></button><p class="intro-guide">Tap arrows to dodge. Hold thrust to fly.<br>Save a little pressure for the landing.</p><span class="keyboard-note">← → / A D &nbsp; STEER &nbsp; · &nbsp; SPACE &nbsp; THRUST</span></div>
+      <div class="edition">01 / SUNSET FREEWAY <span>AN ENDLESS ARCADE EXPERIMENT</span></div>
+    </section>
+    <section id="result" class="overlay result" hidden>
+      <div class="result-card"><span id="crash-reason" class="eyebrow">RUN COMPLETE</span><h2>ONE MORE<br><em>RUN.</em></h2><div class="result-score"><span id="final-distance">0.00</span><small> KM</small></div><div class="record" id="best-line">BEST <span id="final-best">0.00</span> KM</div><p id="crash-tip">Save some pressure to soften your landing.</p><button id="retry" class="primary">TAP TO RETRY <span>↻</span></button></div>
+    </section>
+    <section id="pause" class="overlay pause" hidden><div class="result-card"><span class="eyebrow">TAKE A BREATHER</span><h2>PAUSED.</h2><button id="resume" class="primary">BACK TO THE ROAD <span>↗</span></button><button id="sound" class="sound">SOUND ON</button></div></section>
+    <div id="controls" hidden>
+      <button id="left" class="steer" aria-label="Move one lane left"><span>‹</span></button>
+      <button id="thrust" aria-label="Hold to thrust; release to descend"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M9 18 16 8l7 10M9 24l7-10 7 10"/></svg><span>HOLD TO THRUST</span><i></i></button>
+      <button id="right" class="steer" aria-label="Move one lane right"><span>›</span></button>
+    </div>
+    <button id="pause-button" aria-label="Pause game" hidden>Ⅱ</button>
+    <p id="fatal" hidden>Something interrupted the game. Please reload to try again.</p>
+    <noscript>AIRSHIFT needs JavaScript to play. Please enable it and reload.</noscript>
+  </main>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
