@@ -7,7 +7,7 @@ import {createGame,step,moveLane,speedAt,closingSpeed,encounterGapSeconds,TRAFFI
 function observe(seed,seconds){
   const g=createGame(seed),groups=[],samples=[];g.grounded=false;
   for(let i=0;i<seconds/CONFIG.step;i++){
-    g.y=100;
+    g.y=100;g.charge=1; // Inspect traffic beyond the new survival limit.
     const before=g.waves;
     step(g,{});
     if(i%60===0&&g.time>=5){
@@ -198,7 +198,7 @@ test('same-lane projected traffic envelopes stay separated in the forward view',
   for(let seed=0;seed<48;seed++){
     const g=createGame(seed);g.grounded=false;
     for(let i=0;i<115/CONFIG.step;i++){
-      g.y=100;step(g,{});
+      g.y=100;g.charge=1;step(g,{});
       const visible=g.traffic.filter(v=>v.z<500&&v.z>-25);
       for(let a=0;a<visible.length;a++)for(let b=a+1;b<visible.length;b++){
         const x=visible[a],y=visible[b];if(x.lane!==y.lane)continue;

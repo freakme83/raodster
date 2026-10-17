@@ -14,7 +14,7 @@
     <canvas id="scene" aria-label="Three-lane sunset highway. Hold the road to thrust, tap or swipe to steer, or use arrow keys and space."></canvas>
     <div class="grain" aria-hidden="true"></div>
     <header id="hud" hidden>
-      <div class="distance"><span class="eyebrow">DISTANCE</span><div><span id="distance">0.00</span><span class="unit"> KM</span></div></div>
+      <div class="distance"><span class="eyebrow">DISTANCE</span><div><span id="distance">0.00</span><span class="unit"> KM</span></div><section id="charge-meter" class="charge" role="meter" aria-label="Charge" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"><span class="eyebrow" id="charge-label">CHARGE</span><div class="charge-track"><i id="charge-fill"></i></div></section></div>
       <div class="pressure"><span class="eyebrow" id="pressure-label">PRESSURE</span><div class="segments" role="meter" aria-label="Thruster pressure" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"><i><b></b></i><i><b></b></i><i><b></b></i></div></div>
     </header>
     <div id="feedback" aria-live="polite"></div>

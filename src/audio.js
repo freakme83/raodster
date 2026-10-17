@@ -22,9 +22,12 @@ export class AudioEngine {
     if(e.type==='lane')this.noiseHit(.08,.04);
     if(e.type==='launch')this.tone(90,.18,.13,'sine',180);
     if(e.type==='charged')this.tone(660,.1,.04,'sine',880);
+    if(e.type==='orb'){const pitch=740+Math.min(e.chain-1,5)*65;this.tone(pitch,.11,.075,'sine',pitch*1.2);this.tone(pitch*2,.055,.012,'sine');}
+    if(e.type==='fullArc'){this.tone(980,.15,.075,'sine',1170);this.tone(1310,.2,.055,'sine',1450,.07);}
+    if(e.type==='lowCharge')this.tone(280,.22,.065,'triangle',200);
     if(e.type==='close')this.tone(430,.12,.07,'sine',720);
     if(e.type==='landing'){this.tone(75,.22,e.quality==='rough'?.23:.13,'triangle',35);this.noiseHit(.1,.06);if(e.quality==='perfect'){this.tone(660,.17,.11);this.tone(990,.24,.08,'sine',990,.1);}}
-    if(e.type==='crash'){this.noiseHit(.65,.45);this.tone(140,.5,.3,'sawtooth',22);}
+    if(e.type==='crash'){if(e.reason==='OUT OF CHARGE')this.tone(300,.38,.13,'triangle',70);else{this.noiseHit(.65,.45);this.tone(140,.5,.3,'sawtooth',22);}}
   }
   update(g,playing){
     if(!this.ctx)return;const c=this.ctx,t=c.currentTime,on=playing&&this.enabled;

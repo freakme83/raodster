@@ -116,6 +116,23 @@ export class Renderer {
     c.strokeStyle=`rgba(245,255,246,${.55*strength})`;c.lineWidth=Math.max(1,a.s*.018);
     c.beginPath();c.moveTo(a.x,a.y);c.lineTo(b.x,b.y);c.stroke();
   }
+  chargeOrb(orb,time){
+    const p=this.point(orb.x,orb.y,orb.z);if(!p)return;
+    const c=this.c,r=Math.min(18,Math.max(4.2,p.s*1.05));
+    const glow=c.createRadialGradient(p.x,p.y,0,p.x,p.y,r*2.1);
+    glow.addColorStop(0,'#fff7d699');glow.addColorStop(1,'#f7e7ad00');
+    c.fillStyle=glow;c.fillRect(p.x-r*2.1,p.y-r*2.1,r*4.2,r*4.2);
+    const shimmer=this.reducedMotion?1:.95+.05*Math.sin(time*8+orb.index*1.7);
+    const size=r*shimmer;
+    this.poly([{x:p.x,y:p.y-size},{x:p.x+size*.77,y:p.y-size*.23},{x:p.x+size*.72,y:p.y+size*.47},{x:p.x,y:p.y+size},{x:p.x-size*.72,y:p.y+size*.47},{x:p.x-size*.77,y:p.y-size*.23}],'#f3d79b');
+    this.poly([{x:p.x,y:p.y-size*.69},{x:p.x+size*.4,y:p.y},{x:p.x,y:p.y+size*.56},{x:p.x-size*.4,y:p.y}],'#fffbed');
+  }
+  chargePop(pop){
+    const p=this.point(pop.x,pop.y,pop.z);if(!p)return;
+    const c=this.c,fade=1-pop.age/.25,size=Math.max(3,p.s*.48)*(1+pop.age*2);
+    c.strokeStyle=`rgba(255,247,215,${fade*.7})`;c.lineWidth=Math.max(1,p.s*.04);
+    c.beginPath();c.arc(p.x,p.y,size,0,Math.PI*2);c.stroke();
+  }
   scenery(g,faces){
     for(let i=0;i<19;i++){
       const z=330-i*20-g.distance%20;if(z<-6)continue;const worldIndex=Math.floor(g.distance/20)-i;
@@ -139,7 +156,9 @@ export class Renderer {
     const faces=[];this.scenery(g,faces);
     for(const v of [...g.traffic].sort((a,b)=>b.z-a.z))if(v.z>-6&&v.z<380)this.car(v,false,g,faces);
     const playerTransform=this.car({x:g.x,z:0,width:2.04,length:3.85,height:1.15,color:'#eeeae3'},true,g,faces);
-    faces.sort((a,b)=>b.z-a.z);for(const face of faces)this.world(face.vertices,face.color);
+    for(const arc of g.chargeArcs)for(const orb of arc.orbs)if(!orb.collected&&!orb.missed&&orb.z>-6&&orb.z<330)faces.push({z:orb.z,draw:()=>this.chargeOrb(orb,g.time)});
+    faces.sort((a,b)=>b.z-a.z);for(const face of faces)if(face.draw)face.draw();else this.world(face.vertices,face.color);
+    for(const pop of g.orbPops)this.chargePop(pop);
     this.lateralJets(g,playerTransform);
     for(const v of g.traffic){if(v.wall&&v.lane===1&&v.z>2&&v.z<200){const p=this.point(6.4,2.8,v.z+6.9);if(p){c.fillStyle='#58505c';c.textAlign='center';c.font=`bold ${Math.max(5,p.s*.35)}px Arial`;c.fillText('LIFT ↑',p.x,p.y);}}}
     if(g.dead&&crashAge<.18&&!this.reducedMotion){c.fillStyle=`rgba(255,226,195,${(.18-crashAge)*2})`;c.fillRect(0,0,w,h);}

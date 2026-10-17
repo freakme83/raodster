@@ -1,8 +1,9 @@
 import {createGame,step,moveLane,CONFIG,clamp} from './physics.js';
+import {CHARGE} from './charge.js';
 import {Renderer} from './renderer.js';
 import {AudioEngine} from './audio.js';
 const $=id=>document.getElementById(id);
-const ui=Object.fromEntries(['hud','intro','result','pause','controls','pause-button','feedback','flight-hint','thrust-cue','distance','intro-best','final-distance','final-best','crash-reason','crash-tip','best-line','pressure-label'].map(id=>[id,$(id)]));
+const ui=Object.fromEntries(['hud','intro','result','pause','controls','pause-button','feedback','flight-hint','thrust-cue','distance','intro-best','final-distance','final-best','crash-reason','crash-tip','best-line','pressure-label','charge-meter','charge-fill','charge-label'].map(id=>[id,$(id)]));
 const segments=[...document.querySelectorAll('.segments b')],meter=document.querySelector('.segments');
 const reducedMotion=matchMedia('(prefers-reduced-motion: reduce)').matches;
 let renderer;
@@ -24,8 +25,8 @@ function start(){clearInput();g=createGame();renderer.lift=0;crashAge=0;feedback
 function message(text,duration=1.4){ui.feedback.textContent=text;ui.feedback.classList.add('show');feedbackUntil=g.time+duration;}
 function pause(){if(mode!=='playing')return;setMode('paused');audio.update(g,false);$('sound').textContent=audio.enabled?'SOUND ON':'SOUND OFF';}
 function resume(){if(mode!=='paused')return;clearInput();setMode('playing');lastTime=performance.now();audio.start().catch(()=>{});}
-function end(){setMode('crashing');crashAge=0;best=Math.max(best,g.distance);write('airshift.best.v1',String(best));ui['final-distance'].textContent=format(g.distance);ui['final-best'].textContent=format(best);ui['best-line'].classList.toggle('new-best',g.distance>runBest);ui['crash-reason'].textContent=g.reason;ui['crash-tip'].textContent=({'HARD LANDING':'Keep a little pressure. A short burst just before touchdown softens the fall.','LANDED SIDEWAYS':'Finish your lane change earlier. Give the car a moment to level out.','OFF THE ROAD':'Stay over the highway. Air steering needs a little room to settle.','TRAFFIC COLLISION':'Find a gap, or lift earlier. Your wheels need to clear the roof.'})[g.reason]||'Find your rhythm. One more run.';}
-function events(){for(const e of g.events){audio.event(e);if(e.type==='landing'){if(e.quality==='perfect')message(e.passed>1?`PERFECT · ${e.passed} CAR JUMP`:'PERFECT LANDING');else if(e.quality==='rough')message('ROUGH LANDING');else if(e.meaningfulJump&&e.passed)message(`${e.passed} CAR JUMP`);else if(e.meaningfulJump)message('CLEAN LANDING');if(!reducedMotion&&navigator.vibrate)navigator.vibrate(e.quality==='rough'?24:10);}if(e.type==='close')message('CLOSE CALL',.8);if(e.type==='crash')end();}g.events.length=0;}
+function end(){setMode('crashing');crashAge=0;best=Math.max(best,g.distance);write('airshift.best.v1',String(best));ui['final-distance'].textContent=format(g.distance);ui['final-best'].textContent=format(best);ui['best-line'].classList.toggle('new-best',g.distance>runBest);ui['crash-reason'].textContent=g.reason;ui['crash-tip'].textContent=({'HARD LANDING':'Keep a little pressure. A short burst just before touchdown softens the fall.','LANDED SIDEWAYS':'Finish your lane change earlier. Give the car a moment to level out.','OFF THE ROAD':'Stay over the highway. Air steering needs a little room to settle.','TRAFFIC COLLISION':'Find a gap, or lift earlier. Your wheels need to clear the roof.','OUT OF CHARGE':'Airborne charge orbs refill the meter. Take what you can, then land safely.'})[g.reason]||'Find your rhythm. One more run.';}
+function events(){for(const e of g.events){audio.event(e);if(e.type==='landing'){if(e.quality==='perfect')message(e.passed>1?`PERFECT · ${e.passed} CAR JUMP`:'PERFECT LANDING');else if(e.quality==='rough')message('ROUGH LANDING');else if(e.meaningfulJump&&e.passed)message(`${e.passed} CAR JUMP`);else if(e.meaningfulJump)message('CLEAN LANDING');if(!reducedMotion&&navigator.vibrate)navigator.vibrate(e.quality==='rough'?24:10);}if(e.type==='fullArc')message('FULL ARC',1.2);if(e.type==='close')message('CLOSE CALL',.8);if(e.type==='crash')end();}g.events.length=0;}
 function steer(dir){if(mode==='playing')moveLane(g,dir);}
 $('start').addEventListener('click',start);$('retry').addEventListener('click',start);$('resume').addEventListener('click',resume);$('pause-button').addEventListener('click',pause);
 ui.intro.addEventListener('click',e=>{if(!e.target.closest('button'))start();});
@@ -64,6 +65,10 @@ function frame(now){
     meter.setAttribute('aria-valuenow',Math.round(g.pressure*100));
     document.querySelector('.pressure').classList.toggle('low',g.pressure<.22);
     ui['pressure-label'].textContent=g.pressure<.03?'EMPTY':g.grounded&&g.pressure<.99&&!g.thrusting?'RECHARGING':'PRESSURE';
+    ui['charge-fill'].style.transform=`scaleX(${g.charge})`;
+    ui['charge-meter'].setAttribute('aria-valuenow',Math.round(g.charge*100));
+    ui['charge-meter'].classList.toggle('low',g.charge<CHARGE.lowThreshold);
+    ui['charge-label'].textContent=g.charge<CHARGE.lowThreshold?'LOW CHARGE':'CHARGE';
     if(g.thrusting)usedThrust=true;
     ui['thrust-cue'].hidden=usedThrust||g.time<.4||g.time>5.5||!g.grounded;
     if(g.time>feedbackUntil)ui.feedback.classList.remove('show');
