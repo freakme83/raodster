@@ -36,14 +36,16 @@ function sequences(groups,kind){
   return result;
 }
 
-test('the bounded speed curve stays at the current tune',()=>{
+test('acceleration reaches the same ceiling about 30% sooner with a smooth curve',()=>{
   const at=[0,10,15,30,45,60,90,150,300,2000].map(speedAt);
   assert.equal(at[0],27);
-  for(const [index,low,high] of[[1,36,40],[2,42,46],[3,55,60],[4,64,69],[5,70,74]])
+  for(const [index,low,high] of[[1,40,43],[2,47,50],[3,62,66],[4,70,74],[5,75,78]])
     assert.ok(at[index]>=low&&at[index]<=high,`${index}: ${at[index].toFixed(2)} m/s`);
-  assert.ok(at.every((v,i)=>i===0||v>at[i-1]));
+  const previous=t=>27+53*(1-Math.exp(-Math.pow(t/34,1.2)));
+  assert.ok(speedAt(10)>previous(10)+3&&speedAt(30)>previous(30)+6&&speedAt(60)>previous(60)+3);
+  assert.ok(at.every((v,i)=>i===0||v>=at[i-1]));
   assert.ok(at.at(-1)<=80&&80-at.at(-1)<.001);
-  for(let t=0;t<120;t+=.1)assert.ok(speedAt(t+.1)-speedAt(t)<.25);
+  for(let t=0;t<120;t+=.1){assert.ok(speedAt(t+.1)>speedAt(t));assert.ok(speedAt(t+.1)-speedAt(t)<.2);}
 });
 
 test('ordinary, recovery, and peak gaps vary by time at the intended cadence',()=>{

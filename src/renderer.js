@@ -35,6 +35,15 @@ export class Renderer {
     const v=[[-w/2,0,-l/2],[w/2,0,-l/2],[w/2,0,l/2],[-w/2,0,l/2],[-w/2,h,-l/2],[w/2,h,-l/2],[w/2,h,l/2],[-w/2,h,l/2]].map(([a,b,d])=>transform?transform(a+x,b+y,d+z):[a+x,b+y,d+z]);
     for(const [idx,f] of [[[0,1,5,4],.72],[[1,2,6,5],.83],[[2,3,7,6],.8],[[3,0,4,7],.94],[[4,5,6,7],1.06]])this.addFace(idx.map(i=>v[i]),shade(color,f),faces);
   }
+  playerShadow(v,g){
+    const height=Math.max(0,g.y),spread=1+Math.min(height,8)*.015;
+    const outline=[[-.39,-.5],[-.49,-.43],[-.52,-.18],[-.49,.14],[-.39,.4],[-.27,.5],[.27,.5],[.39,.4],[.49,.14],[.52,-.18],[.49,-.43],[.39,-.5]];
+    const footprint=outline.map(([x,z])=>[v.x+x*v.width*spread,.08,v.z+z*v.length*spread]);
+    const opacity=.15/(1+height*.5),c=this.c;
+    c.save();c.shadowColor=`rgba(27,29,37,${opacity*.85})`;c.shadowBlur=12+Math.min(height,8)*4;
+    this.world(footprint,`rgba(27,29,37,${opacity})`);
+    c.restore();
+  }
   car(v,player,g,faces){
     const w=v.width,l=v.length,h=v.height;
     let roll=player?g.roll:0,pitch=player?g.pitch:0;
@@ -44,7 +53,8 @@ export class Renderer {
       const yy=y-squash,ry=yy*Math.cos(roll)+x*Math.sin(roll),rx=x*Math.cos(roll)-yy*Math.sin(roll);
       return[v.x+rx,(player?g.y:0)+ry*Math.cos(pitch)-z*Math.sin(pitch),v.z+z*Math.cos(pitch)+ry*Math.sin(pitch)];
     };
-    const ground=this.point(v.x,.08,v.z);if(ground){const c=this.c;c.fillStyle=player?`rgba(32,34,43,${.3/(1+g.y*.15)})`:'#25263336';c.beginPath();c.ellipse(ground.x,ground.y,w*.72*ground.s,l*.22*ground.s,0,0,Math.PI*2);c.fill();}
+    if(player)this.playerShadow(v,g);
+    else {const ground=this.point(v.x,.08,v.z);if(ground){const c=this.c;c.fillStyle='#25263336';c.beginPath();c.ellipse(ground.x,ground.y,w*.72*ground.s,l*.22*ground.s,0,0,Math.PI*2);c.fill();}}
     const box=(x,y,z,bw,bh,bl,col)=>this.box(x,y,z,bw,bh,bl,col,faces,transform);
     for(const sx of [-1,1])for(const sz of [-1,1]){box(sx*w*.46,.12,sz*l*.32,.24,.44,l>.0?Math.min(.72,l*.2):.7,'#2d3040');box(sx*w*.52,.23,sz*l*.32,.025,.2,.31,'#929b9b');}
     if(player){
@@ -89,12 +99,12 @@ export class Renderer {
     return player?transform:null;
   }
   lateralJets(g,transform){
-    if(g.dead)return;
-    const sideways=Math.abs(g.vx),correction=!g.grounded&&Math.abs(g.roll)>.025?Math.abs(g.rollV):0;
-    if(sideways<(g.grounded?.9:.4)&&correction<.14)return;
+    if(g.dead||g.grounded)return;
+    const sideways=Math.abs(g.vx),correction=Math.abs(g.roll)>.025?Math.abs(g.rollV):0;
+    if(sideways<.4&&correction<.14)return;
     const direction=sideways>.4?Math.sign(g.vx):-Math.sign(g.rollV);
     if(!direction)return;
-    const side=-direction, strength=clamp(Math.max(sideways/7.2,correction/2.5),.2,1)*(g.grounded?.48:1);
+    const side=-direction, strength=clamp(Math.max(sideways/7.2,correction/2.5),.2,1);
     const pulse=.88+.12*Math.sin(g.time*36),reach=(.32+strength*.5)*pulse;
     const origin=transform(side*1.02,.48,-1.02),tip=transform(side*(1.02+reach),.47,-1.08);
     const a=this.point(...origin),b=this.point(...tip);if(!a||!b)return;
@@ -132,8 +142,6 @@ export class Renderer {
     faces.sort((a,b)=>b.z-a.z);for(const face of faces)this.world(face.vertices,face.color);
     this.lateralJets(g,playerTransform);
     for(const v of g.traffic){if(v.wall&&v.lane===1&&v.z>2&&v.z<200){const p=this.point(6.4,2.8,v.z+6.9);if(p){c.fillStyle='#58505c';c.textAlign='center';c.font=`bold ${Math.max(5,p.s*.35)}px Arial`;c.fillText('LIFT ↑',p.x,p.y);}}}
-    if(g.y>.15){const p=this.point(g.x,.1,0);c.strokeStyle='#d7f7cc88';c.lineWidth=1;c.setLineDash([3,5]);c.beginPath();c.ellipse(p.x,p.y,p.s*1.05,p.s*.39,0,0,Math.PI*2);c.stroke();c.setLineDash([]);}
-    if(g.impact>.05&&!this.reducedMotion){const p=this.point(g.x,.15,0);c.strokeStyle=`rgba(240,224,196,${g.impact*.4})`;c.lineWidth=3;c.beginPath();c.ellipse(p.x,p.y,p.s*(1.8-g.impact*.6),p.s*.3,0,0,Math.PI*2);c.stroke();}
     if(g.dead&&crashAge<.18&&!this.reducedMotion){c.fillStyle=`rgba(255,226,195,${(.18-crashAge)*2})`;c.fillRect(0,0,w,h);}
     const vignette=c.createLinearGradient(0,h*.72,0,h);vignette.addColorStop(0,'#27293800');vignette.addColorStop(1,'#272938b8');c.fillStyle=vignette;c.fillRect(0,h*.72,w,h*.28);
   }

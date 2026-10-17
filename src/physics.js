@@ -14,8 +14,8 @@ export const TYPES = Object.freeze([
 export const TRAFFIC_SPEED_RANGES=Object.freeze([[12,17],[15,19],[13,17],[11,14],[9,12],[9,12]]);
 export const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 export function randomSeed(seed=Date.now()) { let s=seed>>>0;return()=>{s+=0x6D2B79F5;let t=s;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296;}; }
-// A sharper first-minute pull tapers smoothly into an 80 m/s ceiling.
-export const speedAt=time=>27+53*(1-Math.exp(-Math.pow(Math.max(0,time)/34,1.2)));
+// Reach the same 80 m/s ceiling with a 30% faster time scale.
+export const speedAt=time=>27+53*(1-Math.exp(-Math.pow(Math.max(0,time)*1.3/34,1.2)));
 export const trafficFlowAt=distance=>10+5*(1-Math.exp(-distance/4000));
 export const closingSpeed=(g,vehicle)=>g.speed-(vehicle?.worldSpeed??trafficFlowAt(g.distance));
 export function trafficWorldSpeed(g,vehicle,z=vehicle.z,flow=trafficFlowAt(g.distance)){
