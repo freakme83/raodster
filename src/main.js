@@ -1,8 +1,9 @@
 import {createGame,step,moveLane,CONFIG,clamp} from './physics.js';
+import {CHARGE} from './charge.js';
 import {Renderer} from './renderer.js';
 import {AudioEngine} from './audio.js';
 const $=id=>document.getElementById(id);
-const ui=Object.fromEntries(['hud','intro','result','pause','controls','pause-button','feedback','flight-hint','thrust-cue','distance','intro-best','final-distance','final-best','crash-reason','crash-tip','best-line','pressure-label'].map(id=>[id,$(id)]));
+const ui=Object.fromEntries(['hud','intro','result','pause','controls','pause-button','feedback','flight-hint','thrust-cue','distance','intro-best','final-distance','final-best','crash-reason','crash-tip','best-line','pressure-label','charge-meter','charge-fill','charge-label'].map(id=>[id,$(id)]));
 const segments=[...document.querySelectorAll('.segments b')],meter=document.querySelector('.segments');
 const reducedMotion=matchMedia('(prefers-reduced-motion: reduce)').matches;
 let renderer;
@@ -12,20 +13,21 @@ const read=(key,fallback)=>{try{return localStorage.getItem(key)??fallback;}catc
 const write=(key,value)=>{try{localStorage.setItem(key,value);}catch{}};
 let best=Number(read('airshift.best.v1','0'));if(!Number.isFinite(best)||best<0)best=0;
 audio.setEnabled(read('airshift.sound.v1','on')!=='off');
-let g=createGame(),mode='intro',accumulator=0,lastTime=0,crashAge=0,feedbackUntil=0,runBest=best,shownFlightHint=false;
+let g=createGame(),mode='intro',accumulator=0,lastTime=0,crashAge=0,feedbackUntil=0,chargePulseUntil=0,runBest=best,shownFlightHint=false;
 let thrustPointers=new Set(),keys=new Set(),swipes=new Map(),usedThrust=false;
+const SWIPE_THRESHOLD=26,SWIPE_DOMINANCE=1.2,SWIPE_REARM_PAUSE_MS=300,SWIPE_REARM_MOVEMENT=12;
 const format=m=>(m/1000).toFixed(2);
 ui['intro-best'].textContent=format(best);
 const resize=()=>{const box=$('game').getBoundingClientRect();renderer.resize(box.width,box.height,devicePixelRatio||1);};
 new ResizeObserver(resize).observe($('game'));resize();
 function clearInput(){thrustPointers.clear();keys.clear();swipes.clear();}
-function setMode(next){mode=next;ui.intro.hidden=next!=='intro';ui.result.hidden=next!=='result';ui.pause.hidden=next!=='paused';ui.hud.hidden=!['playing','crashing','paused'].includes(next);ui.controls.hidden=next!=='playing';ui['pause-button'].hidden=next!=='playing';if(next!=='playing'){clearInput();ui['flight-hint'].hidden=true;ui['thrust-cue'].hidden=true;ui.feedback.classList.remove('show');}accumulator=0;}
-function start(){clearInput();g=createGame();renderer.lift=0;crashAge=0;feedbackUntil=0;shownFlightHint=false;usedThrust=false;runBest=best;setMode('playing');audio.start().catch(()=>{});$('start').blur();$('retry').blur();}
+function setMode(next){mode=next;ui.intro.hidden=next!=='intro';ui.result.hidden=next!=='result';ui.pause.hidden=next!=='paused';ui.hud.hidden=!['playing','crashing','paused'].includes(next);ui.controls.hidden=next!=='playing';ui['pause-button'].hidden=next!=='playing';if(next!=='playing'){clearInput();ui['flight-hint'].hidden=true;ui['thrust-cue'].hidden=true;ui.feedback.classList.remove('show');ui['charge-meter'].classList.remove('pickup');}accumulator=0;}
+function start(){clearInput();g=createGame();renderer.lift=0;crashAge=0;feedbackUntil=0;chargePulseUntil=0;shownFlightHint=false;usedThrust=false;runBest=best;setMode('playing');ui['charge-meter'].classList.remove('pickup');audio.start().catch(()=>{});$('start').blur();$('retry').blur();}
 function message(text,duration=1.4){ui.feedback.textContent=text;ui.feedback.classList.add('show');feedbackUntil=g.time+duration;}
 function pause(){if(mode!=='playing')return;setMode('paused');audio.update(g,false);$('sound').textContent=audio.enabled?'SOUND ON':'SOUND OFF';}
 function resume(){if(mode!=='paused')return;clearInput();setMode('playing');lastTime=performance.now();audio.start().catch(()=>{});}
-function end(){setMode('crashing');crashAge=0;best=Math.max(best,g.distance);write('airshift.best.v1',String(best));ui['final-distance'].textContent=format(g.distance);ui['final-best'].textContent=format(best);ui['best-line'].classList.toggle('new-best',g.distance>runBest);ui['crash-reason'].textContent=g.reason;ui['crash-tip'].textContent=({'HARD LANDING':'Keep a little pressure. A short burst just before touchdown softens the fall.','LANDED SIDEWAYS':'Finish your lane change earlier. Give the car a moment to level out.','OFF THE ROAD':'Stay over the highway. Air steering needs a little room to settle.','TRAFFIC COLLISION':'Find a gap, or lift earlier. Your wheels need to clear the roof.'})[g.reason]||'Find your rhythm. One more run.';}
-function events(){for(const e of g.events){audio.event(e);if(e.type==='landing'){if(e.quality==='perfect')message(e.passed>1?`PERFECT · ${e.passed} CAR JUMP`:'PERFECT LANDING');else if(e.quality==='rough')message('ROUGH LANDING');else if(e.meaningfulJump&&e.passed)message(`${e.passed} CAR JUMP`);else if(e.meaningfulJump)message('CLEAN LANDING');if(!reducedMotion&&navigator.vibrate)navigator.vibrate(e.quality==='rough'?24:10);}if(e.type==='close')message('CLOSE CALL',.8);if(e.type==='crash')end();}g.events.length=0;}
+function end(){setMode('crashing');crashAge=0;best=Math.max(best,g.distance);write('airshift.best.v1',String(best));ui['final-distance'].textContent=format(g.distance);ui['final-best'].textContent=format(best);ui['best-line'].classList.toggle('new-best',g.distance>runBest);ui['crash-reason'].textContent=g.reason;ui['crash-tip'].textContent=({'HARD LANDING':'Keep a little pressure. A short burst just before touchdown softens the fall.','LANDED SIDEWAYS':'Finish your lane change earlier. Give the car a moment to level out.','OFF THE ROAD':'Stay over the highway. Air steering needs a little room to settle.','TRAFFIC COLLISION':'Find a gap, or lift earlier. Your wheels need to clear the roof.','OUT OF CHARGE':'Airborne charge orbs refill the meter. Take what you can, then land safely.'})[g.reason]||'Find your rhythm. One more run.';}
+function events(){for(const e of g.events){audio.event(e);if(e.type==='orb'){chargePulseUntil=g.time+CHARGE.popDuration;ui['charge-meter'].classList.remove('pickup');void ui['charge-meter'].offsetWidth;ui['charge-meter'].classList.add('pickup');}if(e.type==='landing'){if(e.quality==='perfect')message(e.passed>1?`PERFECT · ${e.passed} CAR JUMP`:'PERFECT LANDING');else if(e.quality==='rough')message('ROUGH LANDING');else if(e.meaningfulJump&&e.passed)message(`${e.passed} CAR JUMP`);else if(e.meaningfulJump)message('CLEAN LANDING');if(!reducedMotion&&navigator.vibrate)navigator.vibrate(e.quality==='rough'?24:10);}if(e.type==='fullArc')message('FULL ARC',1.2);if(e.type==='close')message('CLOSE CALL',.8);if(e.type==='crash')end();}g.events.length=0;}
 function steer(dir){if(mode==='playing')moveLane(g,dir);}
 $('start').addEventListener('click',start);$('retry').addEventListener('click',start);$('resume').addEventListener('click',resume);$('pause-button').addEventListener('click',pause);
 ui.intro.addEventListener('click',e=>{if(!e.target.closest('button'))start();});
@@ -34,9 +36,26 @@ $('sound').addEventListener('click',()=>{audio.setEnabled(!audio.enabled);write(
 for(const [id,dir] of [['left',-1],['right',1]]){$(id).addEventListener('pointerdown',e=>{e.preventDefault();steer(dir);});$(id).addEventListener('click',e=>{if(e.detail===0)steer(dir);});}
 const release=e=>{thrustPointers.delete(e.pointerId);swipes.delete(e.pointerId);};
 // Each canvas touch can hold thrust and steer independently; buttons and overlays never enter this path.
-$('scene').addEventListener('pointerdown',e=>{if(mode==='intro'){start();return;}if(mode==='result'){start();return;}if(mode!=='playing')return;const r=$('scene').getBoundingClientRect();swipes.set(e.pointerId,{x:e.clientX,y:e.clientY,localX:e.clientX-r.left,used:false});if(e.pointerType==='touch')thrustPointers.add(e.pointerId);$('scene').setPointerCapture(e.pointerId);});
-$('scene').addEventListener('pointermove',e=>{const swipe=swipes.get(e.pointerId);if(!swipe||swipe.used)return;const dx=e.clientX-swipe.x,dy=e.clientY-swipe.y;if(Math.abs(dx)>26&&Math.abs(dx)>Math.abs(dy)*1.2){steer(Math.sign(dx));swipe.used=true;}});
-$('scene').addEventListener('pointerup',e=>{const swipe=swipes.get(e.pointerId);if(swipe&&mode==='playing'&&!swipe.used&&Math.hypot(e.clientX-swipe.x,e.clientY-swipe.y)<18){if(swipe.localX<renderer.w*.32)steer(-1);else if(swipe.localX>renderer.w*.68)steer(1);}release(e);});
+$('scene').addEventListener('pointerdown',e=>{if(mode==='intro'){start();return;}if(mode==='result'){start();return;}if(mode!=='playing')return;swipes.set(e.pointerId,{anchorX:e.clientX,anchorY:e.clientY,lastX:e.clientX,lastY:e.clientY,lastMoveAt:e.timeStamp,direction:0});if(e.pointerType==='touch')thrustPointers.add(e.pointerId);$('scene').setPointerCapture(e.pointerId);});
+$('scene').addEventListener('pointermove',e=>{
+  const swipe=swipes.get(e.pointerId);if(!swipe)return;
+  const x=e.clientX,y=e.clientY,moveX=x-swipe.lastX,moveY=y-swipe.lastY,now=Number.isFinite(e.timeStamp)?e.timeStamp:performance.now();
+  const moved=Math.abs(moveX)>0||Math.abs(moveY)>0,idleFor=now-swipe.lastMoveAt;
+  let dx=x-swipe.anchorX,dy=y-swipe.anchorY;
+  if(swipe.direction&&Math.sign(dx)===swipe.direction&&idleFor>=SWIPE_REARM_PAUSE_MS&&Math.abs(moveX)>=SWIPE_REARM_MOVEMENT){
+    // A same-direction command requires a real pause and fresh displacement.
+    // Duplicate coordinates and continuing movement cannot rearm the swipe.
+    swipe.anchorX=swipe.lastX;swipe.anchorY=swipe.lastY;swipe.direction=0;dx=x-swipe.anchorX;dy=y-swipe.anchorY;
+  }
+  const horizontal=Math.abs(dx)>SWIPE_THRESHOLD&&Math.abs(dx)>Math.abs(dy)*SWIPE_DOMINANCE;
+  if(horizontal){
+    const direction=Math.sign(dx);
+    if(!swipe.direction||direction!==swipe.direction){steer(direction);swipe.direction=direction;swipe.anchorX=x;swipe.anchorY=y;}
+  }
+  if(moved)swipe.lastMoveAt=now;
+  swipe.lastX=x;swipe.lastY=y;
+});
+$('scene').addEventListener('pointerup',release);
 for(const name of ['pointercancel','lostpointercapture'])$('scene').addEventListener(name,release);
 window.addEventListener('pointerup',release);window.addEventListener('pointercancel',release);
 window.addEventListener('keydown',e=>{
@@ -64,13 +83,18 @@ function frame(now){
     meter.setAttribute('aria-valuenow',Math.round(g.pressure*100));
     document.querySelector('.pressure').classList.toggle('low',g.pressure<.22);
     ui['pressure-label'].textContent=g.pressure<.03?'EMPTY':g.grounded&&g.pressure<.99&&!g.thrusting?'RECHARGING':'PRESSURE';
+    ui['charge-fill'].style.transform=`scaleX(${g.charge})`;
+    ui['charge-meter'].setAttribute('aria-valuenow',Math.round(g.charge*100));
+    ui['charge-meter'].classList.toggle('low',g.charge<CHARGE.lowThreshold);
+    ui['charge-label'].textContent=g.charge<CHARGE.lowThreshold?'LOW CHARGE':'CHARGE';
+    if(g.time>=chargePulseUntil)ui['charge-meter'].classList.remove('pickup');
     if(g.thrusting)usedThrust=true;
     ui['thrust-cue'].hidden=usedThrust||g.time<.4||g.time>5.5||!g.grounded;
     if(g.time>feedbackUntil)ui.feedback.classList.remove('show');
     if(!g.grounded&&!shownFlightHint){ui['flight-hint'].hidden=false;shownFlightHint=true;}
     if(g.grounded)ui['flight-hint'].hidden=true;
   }else if(mode==='intro'){g.distance+=dt*8;g.time+=dt;}
-  else if(mode==='crashing'){crashAge+=dt;if(crashAge>.7)setMode('result');}
+  else if(mode==='crashing'){crashAge+=dt;if(crashAge>(g.reason==='OUT OF CHARGE'?.86:.7))setMode('result');}
   renderer.render(g,mode,dt,crashAge);audio.update(g,mode==='playing');requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

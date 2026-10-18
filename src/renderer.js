@@ -1,6 +1,9 @@
 import {clamp} from './physics.js';
+import {CHARGE} from './charge.js';
 const mix=(a,b,t)=>a+(b-a)*t;
 function shade(hex,f){const n=parseInt(hex.slice(1),16);return `rgb(${Math.round((n>>16)*f)},${Math.round((n>>8&255)*f)},${Math.round((n&255)*f)})`;}
+export const hazardsOn=(g,age,reducedMotion=false)=>g.dead&&g.reason==='OUT OF CHARGE'&&
+  (reducedMotion||age<.82&&age%.27<.12);
 export class Renderer {
   constructor(canvas,{reducedMotion=false}={}){this.canvas=canvas;this.c=canvas.getContext('2d',{alpha:false});if(!this.c)throw Error('Canvas unavailable');this.w=390;this.h=844;this.lift=0;this.reducedMotion=reducedMotion;}
   resize(w,h,dpr=1){this.w=w;this.h=h;this.dpr=Math.min(dpr,2);this.canvas.width=Math.round(w*this.dpr);this.canvas.height=Math.round(h*this.dpr);}
@@ -46,9 +49,10 @@ export class Renderer {
   }
   car(v,player,g,faces){
     const w=v.width,l=v.length,h=v.height;
-    let roll=player?g.roll:0,pitch=player?g.pitch:0;
-    if(player&&g.dead){roll+=Math.sign(g.roll||1)*this.crashPose*.7;pitch+=this.crashPose*.2;}
-    const squash=player?g.impact*.16+g.preload*.6:0;
+    const powerLoss=player&&g.dead&&g.reason==='OUT OF CHARGE';
+    let roll=player&&!powerLoss?g.roll:0,pitch=player&&!powerLoss?g.pitch:0;
+    if(player&&g.dead&&!powerLoss){roll+=Math.sign(g.roll||1)*this.crashPose*.7;pitch+=this.crashPose*.2;}
+    const squash=player&&!powerLoss?g.impact*.16+g.preload*.6:0;
     const transform=(x,y,z)=>{
       const yy=y-squash,ry=yy*Math.cos(roll)+x*Math.sin(roll),rx=x*Math.cos(roll)-yy*Math.sin(roll);
       return[v.x+rx,(player?g.y:0)+ry*Math.cos(pitch)-z*Math.sin(pitch),v.z+z*Math.cos(pitch)+ry*Math.sin(pitch)];
@@ -78,6 +82,8 @@ export class Renderer {
         box(sx*w*.35,.33,-l*.512,.22,.13,.055,'#283640');
         box(sx*w*.515,.47,-l*.27,.085,.12,.22,'#667984');
       }
+      if(powerLoss)for(const sx of [-1,1])
+        box(sx*w*.43,.61,-l*.528,w*.12,.075,.035,hazardsOn(g,this.failureAge,this.reducedMotion)?'#eeb65f':'#584c49');
       box(0,.34,-l*.515,w*.16,.07,.03,'#c5c5bf');
     }else if(v.type>=3){
       const cargo=v.type>=4;
@@ -116,6 +122,22 @@ export class Renderer {
     c.strokeStyle=`rgba(245,255,246,${.55*strength})`;c.lineWidth=Math.max(1,a.s*.018);
     c.beginPath();c.moveTo(a.x,a.y);c.lineTo(b.x,b.y);c.stroke();
   }
+  chargeOrb(orb,time){
+    const p=this.point(orb.x,orb.y,orb.z);if(!p)return;
+    const c=this.c,r=Math.min(16,Math.max(4.2,p.s*.8));
+    const halo=r*1.33,glow=c.createRadialGradient(p.x,p.y,r*.65,p.x,p.y,halo);
+    glow.addColorStop(0,'#d6a55a35');glow.addColorStop(1,'#d6a55a00');
+    c.fillStyle=glow;c.fillRect(p.x-halo,p.y-halo,halo*2,halo*2);
+    const shimmer=this.reducedMotion?1:.95+.05*Math.sin(time*8+orb.index*1.7);
+    const size=r*shimmer;
+    this.poly([{x:p.x,y:p.y-size},{x:p.x+size*.77,y:p.y-size*.23},{x:p.x+size*.72,y:p.y+size*.47},{x:p.x,y:p.y+size},{x:p.x-size*.72,y:p.y+size*.47},{x:p.x-size*.77,y:p.y-size*.23}],'#d49e57');
+    this.poly([{x:p.x,y:p.y-size*.69},{x:p.x+size*.4,y:p.y},{x:p.x,y:p.y+size*.56},{x:p.x-size*.4,y:p.y}],'#edd19c');
+  }
+  chargePop(pop){
+    const p=this.point(pop.x,pop.y,pop.z);if(!p)return;
+    const t=Math.min(1,pop.age/CHARGE.popDuration),size=Math.min(14,Math.max(4,p.s*.65))*(1-t*.72);
+    this.poly([{x:p.x,y:p.y-size},{x:p.x+size*.65,y:p.y},{x:p.x,y:p.y+size},{x:p.x-size*.65,y:p.y}],`rgba(244,209,147,${.8*(1-t)})`);
+  }
   scenery(g,faces){
     for(let i=0;i<19;i++){
       const z=330-i*20-g.distance%20;if(z<-6)continue;const worldIndex=Math.floor(g.distance/20)-i;
@@ -131,18 +153,21 @@ export class Renderer {
   }
   render(g,mode='playing',dt=1/60,crashAge=0){
     const c=this.c,w=this.w,h=this.h;c.setTransform(this.dpr,0,0,this.dpr,0,0);
+    const powerLoss=g.dead&&g.reason==='OUT OF CHARGE';this.failureAge=crashAge;
     this.lift=mix(this.lift,Math.min(g.y*.3,2.5),Math.min(1,dt*3));
     this.depth=12;this.f=Math.min(w*1.15,h*.98);this.horizon=h*.29;
-    this.camY=(h*.69-this.horizon)*this.depth/this.f+this.lift+(this.reducedMotion?0:g.impact*.14);
+    this.camY=(h*.69-this.horizon)*this.depth/this.f+this.lift+(this.reducedMotion||powerLoss?0:g.impact*.14);
     this.camX=g.x*.1;this.crashPose=clamp(crashAge*1.7,0,1);
     this.background();this.ground(g);
     const faces=[];this.scenery(g,faces);
     for(const v of [...g.traffic].sort((a,b)=>b.z-a.z))if(v.z>-6&&v.z<380)this.car(v,false,g,faces);
     const playerTransform=this.car({x:g.x,z:0,width:2.04,length:3.85,height:1.15,color:'#eeeae3'},true,g,faces);
-    faces.sort((a,b)=>b.z-a.z);for(const face of faces)this.world(face.vertices,face.color);
+    for(const arc of g.chargeArcs)for(const orb of arc.orbs)if(!orb.collected&&!orb.missed&&orb.z>-6&&orb.z<330)faces.push({z:orb.z,draw:()=>this.chargeOrb(orb,g.time)});
+    faces.sort((a,b)=>b.z-a.z);for(const face of faces)if(face.draw)face.draw();else this.world(face.vertices,face.color);
+    for(const pop of g.orbPops)this.chargePop(pop);
     this.lateralJets(g,playerTransform);
     for(const v of g.traffic){if(v.wall&&v.lane===1&&v.z>2&&v.z<200){const p=this.point(6.4,2.8,v.z+6.9);if(p){c.fillStyle='#58505c';c.textAlign='center';c.font=`bold ${Math.max(5,p.s*.35)}px Arial`;c.fillText('LIFT ↑',p.x,p.y);}}}
-    if(g.dead&&crashAge<.18&&!this.reducedMotion){c.fillStyle=`rgba(255,226,195,${(.18-crashAge)*2})`;c.fillRect(0,0,w,h);}
+    if(g.dead&&!powerLoss&&crashAge<.18&&!this.reducedMotion){c.fillStyle=`rgba(255,226,195,${(.18-crashAge)*2})`;c.fillRect(0,0,w,h);}
     const vignette=c.createLinearGradient(0,h*.72,0,h);vignette.addColorStop(0,'#27293800');vignette.addColorStop(1,'#272938b8');c.fillStyle=vignette;c.fillRect(0,h*.72,w,h*.28);
   }
 }
