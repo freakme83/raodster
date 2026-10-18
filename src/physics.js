@@ -1,4 +1,5 @@
 // All units are metres / seconds. Rendering never changes simulation state.
+import {firstArcAt,advanceCharge} from './charge.js';
 export const CONFIG = Object.freeze({lane:3.4,roadHalf:5.25,halfWidth:.83,halfLength:1.85,gravity:11,thrust:25,drain:.43,recharge:.32,maxFall:11.5,maxAngle:25*Math.PI/180,step:1/120});
 export const MIN_MEANINGFUL_AIRTIME = 1;
 export const TYPES = Object.freeze([
@@ -43,8 +44,9 @@ export function encounterGapSeconds(time,kind='flow'){
   if(kind==='opening')return 2.9-.8*intensity;
   return 2.55-1.8*intensity;
 }
-export function createGame(seed) {
-  return {time:0,distance:0,speed:27,pressure:1,x:0,vx:0,lane:0,y:0,vy:0,roll:0,rollV:0,pitch:0,grounded:true,preload:0,thrusting:false,impact:0,instability:0,traffic:[],events:[],dead:false,reason:null,spawnIn:1.4,waves:0,lastWall:-100,random:randomSeed(seed),jumpPasses:0,airTime:0,lastSafeLane:0,lastWasWall:false,peakRows:0,lastPeak:-100,recoveryDue:false,optionalRows:0,optionalId:0,lastOptional:-100};
+export function createGame(seed=Date.now()) {
+  const chargeRandom=randomSeed((seed^0x9e3779b9)>>>0);
+  return {time:0,distance:0,speed:27,pressure:1,charge:1,x:0,vx:0,lane:0,y:0,vy:0,roll:0,rollV:0,pitch:0,grounded:true,preload:0,thrusting:false,impact:0,instability:0,traffic:[],chargeArcs:[],orbPops:[],events:[],dead:false,reason:null,spawnIn:1.4,waves:0,lastWall:-100,random:randomSeed(seed),chargeRandom,nextChargeArcAt:firstArcAt(chargeRandom),nextChargeArcId:0,orbChain:null,lowChargeWarned:false,jumpPasses:0,airTime:0,lastSafeLane:0,lastWasWall:false,peakRows:0,lastPeak:-100,recoveryDue:false,optionalRows:0,optionalId:0,lastOptional:-100};
 }
 export function moveLane(g,dir){
   if(g.dead)return;
@@ -175,6 +177,7 @@ export function step(g,input,dt=CONFIG.step){
   if(g.dead)return;
   g.time+=dt;g.speed=speedAt(g.time);g.distance+=g.speed*dt;
   g.impact=Math.max(0,g.impact-dt*3.8);g.instability=Math.max(0,g.instability-dt);
+  const previousPosition={x:g.x,y:g.y};
   const wasGrounded=g.grounded;
   g.thrusting=!!input.thrust&&g.pressure>.0001;
   if(g.thrusting){
@@ -215,4 +218,5 @@ export function step(g,input,dt=CONFIG.step){
   g.traffic=g.traffic.filter(v=>v.z>-35);
   g.spawnIn-=dt;
   if(g.spawnIn<=0)g.spawnIn=spawnWave(g);
+  if(advanceCharge(g,dt,previousPosition))fail(g,'OUT OF CHARGE');
 }

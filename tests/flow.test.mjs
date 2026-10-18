@@ -4,6 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {Renderer} from '../src/renderer.js';
+import {CHARGE,spawnChargeArc} from '../src/charge.js';
 class Element {
   constructor(id=''){this.id=id;this.hidden=false;this.style={};this.textContent='';this.events={};this.attrs={};this.classes=new Set();this.classList={add:x=>this.classes.add(x),remove:x=>this.classes.delete(x),toggle:(x,v)=>v?this.classes.add(x):this.classes.delete(x)};}
   addEventListener(type,fn){(this.events[type]??=[]).push(fn);}
@@ -30,6 +31,7 @@ test('touch, cancel, pause, crash, persistence, and retry work together',async()
   await import('../src/main.js');
   el('intro').fire('pointerdown',{pointerId:10,pointerType:'touch'});frames(1);assert.equal(game.thrusting,false);
   el('start').fire('click');frames(1);assert.equal(el('intro').hidden,true);assert.equal(el('controls').hidden,false);
+  assert.equal(el('charge-meter').attrs['aria-valuenow'],100);
   const touch=(pointerId,x=195,y=400)=>({pointerId,pointerType:'touch',clientX:x,clientY:y});
   el('pause-button').fire('pointerdown',touch(9));el('left').fire('pointerdown',touch(8));frames(25);
   assert.equal(game.pressure,1,'UI controls do not start thrust');
@@ -43,7 +45,7 @@ test('touch, cancel, pause, crash, persistence, and retry work together',async()
   el('scene').fire('pointercancel',touch(1));frames(1);assert.equal(game.thrusting,false,'cancellation clears thrust');
   el('scene').fire('pointerdown',touch(4));frames(3);assert.equal(game.thrusting,true);
   el('scene').fire('pointerup',touch(4));frames(1);assert.equal(game.thrusting,false,'release stops thrust');
-  el('pause-button').fire('click');const distance=el('distance').textContent;frames(80);assert.equal(el('distance').textContent,distance);assert.equal(el('pause').hidden,false);
+  el('pause-button').fire('click');const distance=el('distance').textContent,pausedCharge=game.charge;frames(80);assert.equal(el('distance').textContent,distance);assert.equal(game.charge,pausedCharge);assert.equal(el('pause').hidden,false);
   el('scene').fire('pointerdown',touch(5));el('pause').fire('pointerdown',touch(6));frames(1);assert.equal(game.thrusting,false,'pause overlay cannot start thrust');
   el('resume').fire('click');frames(20);assert.equal(el('pause').hidden,true);assert.equal(game.thrusting,false);
   window.fire('keydown',{code:'Space',repeat:false});frames(12);assert.equal(game.thrusting,true,'keyboard thrust remains available');
@@ -61,6 +63,21 @@ test('touch, cancel, pause, crash, persistence, and retry work together',async()
   game.grounded=false;game.y=.005;game.vy=-3;game.roll=0;game.rollV=0;game.airTime=1.05;frames(1);
   assert.equal(el('feedback').textContent,'PERFECT LANDING');assert.equal(el('feedback').classes.has('show'),true);
   el('retry').fire('click');frames(1);game.time=5.6;frames(1);assert.equal(el('thrust-cue').hidden,true,'the teaching cue expires');
+  game.spawnIn=Infinity;game.nextChargeArcAt=Infinity;game.charge=.5;
+  spawnChargeArc(game);const orb=game.chargeArcs[0].orbs[0];
+  game.grounded=false;game.y=orb.y-CHARGE.pickupCenterY-CHARGE.pickupY+.2;game.vy=0;game.x=orb.x;game.lane=Math.round(orb.x/3.4);orb.z=0;
+  frames(1);assert.equal(orb.collected,true);assert.ok(game.charge>.5);
+  assert.equal(el('charge-meter').classes.has('pickup'),true,'a pickup pulses the meter immediately');
+  assert.ok(Number(el('charge-meter').attrs['aria-valuenow'])>50);
+  frames(20);assert.equal(el('charge-meter').classes.has('pickup'),false,'pickup pulse is brief');
+  game.spawnIn=Infinity;game.nextChargeArcAt=Infinity;game.charge=.001;
+  frames(10);assert.equal(el('crash-reason').textContent,'OUT OF CHARGE');
+  assert.equal(el('charge-meter').attrs['aria-valuenow'],0);
+  assert.equal(game.dead,true);assert.equal(el('result').hidden,true,'hazards have time to flash before results');
+  const emptyTime=game.time;frames(38);assert.equal(el('result').hidden,true);
+  frames(32);assert.equal(el('result').hidden,false,'the result appears after the brief power-loss beat');
+  assert.equal(game.time,emptyTime,'charge failure freezes simulation');
+  el('retry').fire('click');frames(1);assert.ok(game.charge>.999,'the new run begins full and drains once gameplay advances');assert.equal(el('charge-meter').attrs['aria-valuenow'],100);
   const html=await readFile(new URL('../index.html',import.meta.url),'utf8');
   assert.doesNotMatch(html,/id="thrust"/);assert.match(html,/id="thrust-cue"/);
   assert.match(html,/<div id="controls"[^>]*>\s*<button id="left"[\s\S]*<button id="right"/);
