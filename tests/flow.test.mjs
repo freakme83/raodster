@@ -32,7 +32,7 @@ test('touch, cancel, pause, crash, persistence, and retry work together',async()
   el('intro').fire('pointerdown',{pointerId:10,pointerType:'touch'});frames(1);assert.equal(game.thrusting,false);
   el('start').fire('click');frames(1);assert.equal(el('intro').hidden,true);assert.equal(el('controls').hidden,false);
   assert.equal(el('charge-meter').attrs['aria-valuenow'],100);
-  const touch=(pointerId,x=195,y=400)=>({pointerId,pointerType:'touch',clientX:x,clientY:y});
+  const touch=(pointerId,x=195,y=400,timeStamp=now)=>({pointerId,pointerType:'touch',clientX:x,clientY:y,timeStamp});
   el('pause-button').fire('pointerdown',touch(9));el('left').fire('pointerdown',touch(8));frames(25);
   assert.equal(game.pressure,1,'UI controls do not start thrust');
   frames(4);assert.equal(el('thrust-cue').hidden,false,'a short run teaches the gesture');
@@ -46,23 +46,49 @@ test('touch, cancel, pause, crash, persistence, and retry work together',async()
     el('scene').fire('pointerup',touch(pointerId,x));frames(1);
     assert.equal(game.lane,lane,'holding and releasing at either screen edge never steers');
   }
-  // A single pointer can issue distinct swipes in both directions without dropping thrust.
-  game.lane=-1;game.x=-3.4;const swipeId=22;
-  el('scene').fire('pointerdown',touch(swipeId,180));frames(2);
-  el('scene').fire('pointermove',touch(swipeId,214));frames(2);
-  assert.equal(game.lane,0);assert.equal(game.thrusting,true);
-  sustainedHold(20);assert.equal(game.lane,0,'one stationary endpoint produces one lane command');
-  el('scene').fire('pointermove',touch(swipeId,248));
-  assert.equal(game.lane,1,'the next displacement from the previous swipe endpoint issues another command');frames(2);
-  el('scene').fire('pointermove',touch(swipeId,213));frames(2);
-  assert.equal(game.lane,0,'direction reversal works without releasing');assert.equal(game.thrusting,true);
-  el('scene').fire('pointerup',touch(swipeId,213));frames(1);assert.equal(game.thrusting,false);
+  const moveSwipe=(id,x)=>{const before=game.lane;el('scene').fire('pointermove',touch(id,x));return game.lane-before;};
+  // Each continuous stroke is latched after one command, regardless of distance or sampling.
+  for(const [id,endX] of [[22,214],[23,292]]){
+    game.lane=-1;game.x=-3.4;el('scene').fire('pointerdown',touch(id,180));
+    assert.equal(moveSwipe(id,endX),1,'short and long swipes each issue only one command');
+    assert.equal(game.lane,0,'a single overshot swipe cannot cross a second lane');
+    if(id===23){
+      let commands=0;
+      for(let x=endX+5;x<=endX+100;x+=5){frames(1);commands+=Math.abs(moveSwipe(id,x));}
+      assert.equal(commands,0,'many continued pointermoves do not repeat a lane command');
+      assert.equal(game.lane,0);
+    }
+    el('scene').fire('pointerup',touch(id,endX));frames(1);
+  }
+  // A slow but continuously sampled swipe remains one gesture; elapsed time alone cannot rearm it.
+  game.lane=-1;game.x=-3.4;el('scene').fire('pointerdown',touch(24,180));let slowCommands=0;
+  for(let x=185;x<=300;x+=5){frames(6);slowCommands+=Math.abs(moveSwipe(24,x));}
+  assert.equal(slowCommands,1,'a slow continuous swipe is not split by duration');assert.equal(game.lane,0);
+  // One large pointermove is one command too.
+  el('scene').fire('pointerup',touch(24,300));game.lane=-1;game.x=-3.4;
+  el('scene').fire('pointerdown',touch(25,180));assert.equal(moveSwipe(25,330),1);assert.equal(game.lane,0);
+  // Holding at the endpoint, including duplicate events and minor jitter, stays latched.
+  for(let i=0;i<8;i++){frames(1);moveSwipe(25,330);moveSwipe(25,332+(i%2));}
+  sustainedHold(180);assert.equal(game.lane,0,'a long stationary hold after a swipe does not steer');
+  // A tiny post-pause nudge is not enough to rearm, but a clear second swipe is.
+  frames(24);assert.equal(moveSwipe(25,343),0,'small movement after a pause is not a new swipe');
+  assert.equal(moveSwipe(25,365),0,'continuation after the small nudge remains the same swipe');
+  frames(24);assert.equal(moveSwipe(25,400),1);assert.equal(game.lane,1,'a distinct swipe after a pause changes one more lane');assert.equal(game.thrusting,true);
+  // Tiny endpoint jitter is not a reversal; a deliberate opposite swipe is.
+  for(const x of [397,402,396])assert.equal(moveSwipe(25,x),0,'small endpoint jitter cannot rearm steering');
+  assert.equal(moveSwipe(25,367),-1,'a deliberate direction reversal issues exactly one command');assert.equal(game.lane,0);assert.equal(game.thrusting,true);
+  for(const x of [335,305,270,240])assert.equal(moveSwipe(25,x),0,'continuing the reversed swipe remains latched');
+  el('scene').fire('pointerup',touch(25,240));frames(1);assert.equal(game.thrusting,false);
+  game.lane=-1;game.x=-3.4;el('scene').fire('pointerdown',touch(27,180));
+  assert.equal(moveSwipe(27,214),1);frames(22);
+  assert.equal(moveSwipe(27,248),1,'a second same-direction swipe rearms after a brief genuine pause');assert.equal(game.lane,1);
+  el('scene').fire('pointerup',touch(27,248));frames(1);
+  // Airborne thrust and one long swipe remain independent.
   game.lane=-1;game.x=-3.4;game.vx=0;game.grounded=false;game.y=2;game.vy=0;game.pressure=1;
-  el('scene').fire('pointerdown',touch(23,180));sustainedHold(30);
+  el('scene').fire('pointerdown',touch(26,180));sustainedHold(30);
   assert.equal(game.lane,-1,'airborne stationary hold does not steer');
-  el('scene').fire('pointermove',touch(23,216));frames(2);
-  assert.equal(game.lane,0,'airborne horizontal swipe still steers');assert.equal(game.thrusting,true);
-  el('scene').fire('pointerup',touch(23,216));frames(1);assert.equal(game.thrusting,false);
+  assert.equal(moveSwipe(26,290),1);assert.equal(game.lane,0,'airborne long swipe changes only one lane');assert.equal(game.thrusting,true);
+  el('scene').fire('pointerup',touch(26,290));frames(1);assert.equal(game.thrusting,false);
   game.grounded=true;game.y=0;game.vy=0;game.lane=-1;game.x=-3.4;
   el('scene').fire('pointerdown',touch(1));frames(30);assert.ok(Number(el('.segments').attrs['aria-valuenow'])<90);
   assert.equal(game.thrusting,true);assert.equal(el('thrust-cue').hidden,true);
@@ -73,6 +99,11 @@ test('touch, cancel, pause, crash, persistence, and retry work together',async()
   el('scene').fire('pointercancel',touch(1));frames(1);assert.equal(game.thrusting,false,'cancellation clears thrust');
   el('scene').fire('pointerdown',touch(4));frames(3);assert.equal(game.thrusting,true);
   el('scene').fire('pointerup',touch(4));frames(1);assert.equal(game.thrusting,false,'release stops thrust');
+  game.lane=-1;game.x=-3.4;el('scene').fire('pointerdown',touch(28,180));assert.equal(moveSwipe(28,214),1);
+  el('pause-button').fire('click');el('resume').fire('click');frames(1);const resumedLane=game.lane;
+  assert.equal(game.thrusting,false);assert.equal(moveSwipe(28,330),0,'a stale pointer cannot steer after pause/resume');assert.equal(game.lane,resumedLane);
+  el('scene').fire('pointerdown',touch(29,180));assert.equal(moveSwipe(29,214),1,'a fresh gesture works after pause');
+  el('scene').fire('pointerup',touch(29,214));el('scene').fire('pointerup',touch(28,330));frames(1);
   el('pause-button').fire('click');const distance=el('distance').textContent,pausedCharge=game.charge;frames(80);assert.equal(el('distance').textContent,distance);assert.equal(game.charge,pausedCharge);assert.equal(el('pause').hidden,false);
   el('scene').fire('pointerdown',touch(5));el('pause').fire('pointerdown',touch(6));frames(1);assert.equal(game.thrusting,false,'pause overlay cannot start thrust');
   el('resume').fire('click');frames(20);assert.equal(el('pause').hidden,true);assert.equal(game.thrusting,false);
