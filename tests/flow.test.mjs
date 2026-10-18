@@ -36,6 +36,34 @@ test('touch, cancel, pause, crash, persistence, and retry work together',async()
   el('pause-button').fire('pointerdown',touch(9));el('left').fire('pointerdown',touch(8));frames(25);
   assert.equal(game.pressure,1,'UI controls do not start thrust');
   frames(4);assert.equal(el('thrust-cue').hidden,false,'a short run teaches the gesture');
+  game.traffic=[];game.spawnIn=Infinity;
+  const sustainedHold=n=>{for(let i=0;i<n;i++){game.pressure=1;frames(1);}};
+  // Screen position and a multi-second stationary hold do not steer.
+  for(const [pointerId,x] of [[20,12],[21,378]]){
+    const lane=game.lane;el('scene').fire('pointerdown',touch(pointerId,x));sustainedHold(90);
+    for(const dx of [4,-3,7,-5,2])el('scene').fire('pointermove',touch(pointerId,x+dx));
+    sustainedHold(90);assert.equal(game.thrusting,true);assert.equal(game.lane,lane);
+    el('scene').fire('pointerup',touch(pointerId,x));frames(1);
+    assert.equal(game.lane,lane,'holding and releasing at either screen edge never steers');
+  }
+  // A single pointer can issue distinct swipes in both directions without dropping thrust.
+  game.lane=-1;game.x=-3.4;const swipeId=22;
+  el('scene').fire('pointerdown',touch(swipeId,180));frames(2);
+  el('scene').fire('pointermove',touch(swipeId,214));frames(2);
+  assert.equal(game.lane,0);assert.equal(game.thrusting,true);
+  sustainedHold(20);assert.equal(game.lane,0,'one stationary endpoint produces one lane command');
+  el('scene').fire('pointermove',touch(swipeId,248));
+  assert.equal(game.lane,1,'the next displacement from the previous swipe endpoint issues another command');frames(2);
+  el('scene').fire('pointermove',touch(swipeId,213));frames(2);
+  assert.equal(game.lane,0,'direction reversal works without releasing');assert.equal(game.thrusting,true);
+  el('scene').fire('pointerup',touch(swipeId,213));frames(1);assert.equal(game.thrusting,false);
+  game.lane=-1;game.x=-3.4;game.vx=0;game.grounded=false;game.y=2;game.vy=0;game.pressure=1;
+  el('scene').fire('pointerdown',touch(23,180));sustainedHold(30);
+  assert.equal(game.lane,-1,'airborne stationary hold does not steer');
+  el('scene').fire('pointermove',touch(23,216));frames(2);
+  assert.equal(game.lane,0,'airborne horizontal swipe still steers');assert.equal(game.thrusting,true);
+  el('scene').fire('pointerup',touch(23,216));frames(1);assert.equal(game.thrusting,false);
+  game.grounded=true;game.y=0;game.vy=0;game.lane=-1;game.x=-3.4;
   el('scene').fire('pointerdown',touch(1));frames(30);assert.ok(Number(el('.segments').attrs['aria-valuenow'])<90);
   assert.equal(game.thrusting,true);assert.equal(el('thrust-cue').hidden,true);
   el('right').fire('pointerdown',touch(2));frames(5);assert.equal(game.lane,0,'steering button works during a separate thrust hold');
