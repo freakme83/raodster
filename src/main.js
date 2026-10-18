@@ -35,9 +35,9 @@ $('sound').addEventListener('click',()=>{audio.setEnabled(!audio.enabled);write(
 for(const [id,dir] of [['left',-1],['right',1]]){$(id).addEventListener('pointerdown',e=>{e.preventDefault();steer(dir);});$(id).addEventListener('click',e=>{if(e.detail===0)steer(dir);});}
 const release=e=>{thrustPointers.delete(e.pointerId);swipes.delete(e.pointerId);};
 // Each canvas touch can hold thrust and steer independently; buttons and overlays never enter this path.
-$('scene').addEventListener('pointerdown',e=>{if(mode==='intro'){start();return;}if(mode==='result'){start();return;}if(mode!=='playing')return;const r=$('scene').getBoundingClientRect();swipes.set(e.pointerId,{x:e.clientX,y:e.clientY,localX:e.clientX-r.left,used:false});if(e.pointerType==='touch')thrustPointers.add(e.pointerId);$('scene').setPointerCapture(e.pointerId);});
-$('scene').addEventListener('pointermove',e=>{const swipe=swipes.get(e.pointerId);if(!swipe||swipe.used)return;const dx=e.clientX-swipe.x,dy=e.clientY-swipe.y;if(Math.abs(dx)>26&&Math.abs(dx)>Math.abs(dy)*1.2){steer(Math.sign(dx));swipe.used=true;}});
-$('scene').addEventListener('pointerup',e=>{const swipe=swipes.get(e.pointerId);if(swipe&&mode==='playing'&&!swipe.used&&Math.hypot(e.clientX-swipe.x,e.clientY-swipe.y)<18){if(swipe.localX<renderer.w*.32)steer(-1);else if(swipe.localX>renderer.w*.68)steer(1);}release(e);});
+$('scene').addEventListener('pointerdown',e=>{if(mode==='intro'){start();return;}if(mode==='result'){start();return;}if(mode!=='playing')return;swipes.set(e.pointerId,{anchorX:e.clientX,anchorY:e.clientY});if(e.pointerType==='touch')thrustPointers.add(e.pointerId);$('scene').setPointerCapture(e.pointerId);});
+$('scene').addEventListener('pointermove',e=>{const swipe=swipes.get(e.pointerId);if(!swipe)return;const dx=e.clientX-swipe.anchorX,dy=e.clientY-swipe.anchorY;if(Math.abs(dx)>26&&Math.abs(dx)>Math.abs(dy)*1.2){steer(Math.sign(dx));swipe.anchorX=e.clientX;swipe.anchorY=e.clientY;}});
+$('scene').addEventListener('pointerup',release);
 for(const name of ['pointercancel','lostpointercapture'])$('scene').addEventListener(name,release);
 window.addEventListener('pointerup',release);window.addEventListener('pointercancel',release);
 window.addEventListener('keydown',e=>{
