@@ -15,6 +15,7 @@ let best=Number(read('airshift.best.v1','0'));if(!Number.isFinite(best)||best<0)
 audio.setEnabled(read('airshift.sound.v1','on')!=='off');
 let g=createGame(),mode='intro',accumulator=0,lastTime=0,crashAge=0,feedbackUntil=0,chargePulseUntil=0,runBest=best,shownFlightHint=false;
 let thrustPointers=new Set(),keys=new Set(),swipes=new Map(),usedThrust=false;
+const SWIPE_THRESHOLD=26,SWIPE_DOMINANCE=1.2,SWIPE_REARM_PAUSE_MS=300,SWIPE_REARM_MOVEMENT=12;
 const format=m=>(m/1000).toFixed(2);
 ui['intro-best'].textContent=format(best);
 const resize=()=>{const box=$('game').getBoundingClientRect();renderer.resize(box.width,box.height,devicePixelRatio||1);};
@@ -35,9 +36,26 @@ $('sound').addEventListener('click',()=>{audio.setEnabled(!audio.enabled);write(
 for(const [id,dir] of [['left',-1],['right',1]]){$(id).addEventListener('pointerdown',e=>{e.preventDefault();steer(dir);});$(id).addEventListener('click',e=>{if(e.detail===0)steer(dir);});}
 const release=e=>{thrustPointers.delete(e.pointerId);swipes.delete(e.pointerId);};
 // Each canvas touch can hold thrust and steer independently; buttons and overlays never enter this path.
-$('scene').addEventListener('pointerdown',e=>{if(mode==='intro'){start();return;}if(mode==='result'){start();return;}if(mode!=='playing')return;const r=$('scene').getBoundingClientRect();swipes.set(e.pointerId,{x:e.clientX,y:e.clientY,localX:e.clientX-r.left,used:false});if(e.pointerType==='touch')thrustPointers.add(e.pointerId);$('scene').setPointerCapture(e.pointerId);});
-$('scene').addEventListener('pointermove',e=>{const swipe=swipes.get(e.pointerId);if(!swipe||swipe.used)return;const dx=e.clientX-swipe.x,dy=e.clientY-swipe.y;if(Math.abs(dx)>26&&Math.abs(dx)>Math.abs(dy)*1.2){steer(Math.sign(dx));swipe.used=true;}});
-$('scene').addEventListener('pointerup',e=>{const swipe=swipes.get(e.pointerId);if(swipe&&mode==='playing'&&!swipe.used&&Math.hypot(e.clientX-swipe.x,e.clientY-swipe.y)<18){if(swipe.localX<renderer.w*.32)steer(-1);else if(swipe.localX>renderer.w*.68)steer(1);}release(e);});
+$('scene').addEventListener('pointerdown',e=>{if(mode==='intro'){start();return;}if(mode==='result'){start();return;}if(mode!=='playing')return;swipes.set(e.pointerId,{anchorX:e.clientX,anchorY:e.clientY,lastX:e.clientX,lastY:e.clientY,lastMoveAt:e.timeStamp,direction:0});if(e.pointerType==='touch')thrustPointers.add(e.pointerId);$('scene').setPointerCapture(e.pointerId);});
+$('scene').addEventListener('pointermove',e=>{
+  const swipe=swipes.get(e.pointerId);if(!swipe)return;
+  const x=e.clientX,y=e.clientY,moveX=x-swipe.lastX,moveY=y-swipe.lastY,now=Number.isFinite(e.timeStamp)?e.timeStamp:performance.now();
+  const moved=Math.abs(moveX)>0||Math.abs(moveY)>0,idleFor=now-swipe.lastMoveAt;
+  let dx=x-swipe.anchorX,dy=y-swipe.anchorY;
+  if(swipe.direction&&Math.sign(dx)===swipe.direction&&idleFor>=SWIPE_REARM_PAUSE_MS&&Math.abs(moveX)>=SWIPE_REARM_MOVEMENT){
+    // A same-direction command requires a real pause and fresh displacement.
+    // Duplicate coordinates and continuing movement cannot rearm the swipe.
+    swipe.anchorX=swipe.lastX;swipe.anchorY=swipe.lastY;swipe.direction=0;dx=x-swipe.anchorX;dy=y-swipe.anchorY;
+  }
+  const horizontal=Math.abs(dx)>SWIPE_THRESHOLD&&Math.abs(dx)>Math.abs(dy)*SWIPE_DOMINANCE;
+  if(horizontal){
+    const direction=Math.sign(dx);
+    if(!swipe.direction||direction!==swipe.direction){steer(direction);swipe.direction=direction;swipe.anchorX=x;swipe.anchorY=y;}
+  }
+  if(moved)swipe.lastMoveAt=now;
+  swipe.lastX=x;swipe.lastY=y;
+});
+$('scene').addEventListener('pointerup',release);
 for(const name of ['pointercancel','lostpointercapture'])$('scene').addEventListener(name,release);
 window.addEventListener('pointerup',release);window.addEventListener('pointercancel',release);
 window.addEventListener('keydown',e=>{
