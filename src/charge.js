@@ -1,7 +1,7 @@
 // Charge is a survival resource, independent of cold-gas thruster pressure.
 export const CHARGE = Object.freeze({
   drainPerSecond:1/40,
-  perOrb:.055,
+  perOrb:.08,
   orbsPerArc:6,
   lowThreshold:.23,
   firstArcWindow:[10,15],
@@ -17,6 +17,30 @@ export const CHARGE = Object.freeze({
 export const ARC_SHAPES=Object.freeze(['simple','cross','high','greedy']);
 const between=(r,[min,max])=>min+(max-min)*r();
 const smooth=t=>t*t*(3-2*t);
+const playerHalfLength=1.85,playerHalfWidth=.83;
+
+// Predict nearby traffic at each orb's encounter, then lift only the affected
+// part of the arc. The player needs room for their body above a vehicle roof;
+// the last orbs and their landing lanes remain free to be risky.
+function clearTrafficRoofs(g,orbs){
+  const original=orbs.map(orb=>orb.y),raised=[...original];
+  for(const orb of orbs){
+    const travelTime=orb.z/g.speed;
+    for(const vehicle of g.traffic){
+      if(vehicle.wall||vehicle.height<2.6)continue;
+      if(Math.abs(vehicle.x-orb.x)>vehicle.width/2+playerHalfWidth+CHARGE.pickupX)continue;
+      const projectedZ=vehicle.z-(g.speed-(vehicle.worldSpeed??15))*travelTime;
+      const envelope=vehicle.length/2+playerHalfLength+CHARGE.pickupZ+3;
+      if(Math.abs(projectedZ)>envelope)continue;
+      const required=vehicle.height+.08+.28+CHARGE.pickupCenterY-CHARGE.pickupY*.6;
+      const lift=Math.max(0,required-original[orb.index]);
+      raised[orb.index]=Math.max(raised[orb.index],original[orb.index]+lift);
+      for(const neighbor of [orb.index-1,orb.index+1])if(neighbor>=0&&neighbor<orbs.length)
+        raised[neighbor]=Math.max(raised[neighbor],original[neighbor]+lift*.5);
+    }
+  }
+  orbs.forEach((orb,i)=>{orb.y=raised[i];});
+}
 
 export function firstArcAt(r){return between(r,CHARGE.firstArcWindow);}
 export function nextArcDelay(r){return between(r,CHARGE.repeatArcWindow);}
@@ -29,16 +53,17 @@ export function spawnChargeArc(g){
   if(g.traffic.some(v=>v.wall&&v.z>firstZ-120&&v.z<lastZ+120))return false;
   const r=g.chargeRandom,roll=r();
   const shape=g.nextChargeArcId===0?(roll<.72?'simple':'cross'):
-    roll<.38?'simple':roll<.65?'cross':roll<.81?'high':'greedy';
+    roll<.38?'simple':roll<.66?'cross':roll<.79?'high':'greedy';
   const startLane=Math.floor(r()*3)-1;
   const direction=startLane===-1?1:startLane===1?-1:r()<.5?-1:1;
   const lane=shape==='greedy'?0:startLane;
   const orbs=Array.from({length:CHARGE.orbsPerArc},(_,index)=>{
     const t=index/(CHARGE.orbsPerArc-1),hump=Math.sin(Math.PI*t);
     const x=lane*3.4+(shape==='cross'?direction*3.4*smooth(t):shape==='greedy'?direction*3.4*t*t*t:0);
-    const y=shape==='high'?3+2.1*hump:shape==='greedy'?2.15+1.2*hump+1.85*t*t:2.2+1.1*hump;
+    const y=shape==='high'?3.2+2.6*hump:shape==='greedy'?2.7+1.2*hump+1.85*t*t:2.75+1.1*hump;
     return {index,x,y,z:firstZ+index*spacing,collected:false,missed:false};
   });
+  clearTrafficRoofs(g,orbs);
   g.chargeArcs.push({id:g.nextChargeArcId++,shape,lane,direction,spawnTime:g.time,orbs,collected:0,completed:false});
   return true;
 }

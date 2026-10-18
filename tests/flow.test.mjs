@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {Renderer} from '../src/renderer.js';
-import {spawnChargeArc} from '../src/charge.js';
+import {CHARGE,spawnChargeArc} from '../src/charge.js';
 class Element {
   constructor(id=''){this.id=id;this.hidden=false;this.style={};this.textContent='';this.events={};this.attrs={};this.classes=new Set();this.classList={add:x=>this.classes.add(x),remove:x=>this.classes.delete(x),toggle:(x,v)=>v?this.classes.add(x):this.classes.delete(x)};}
   addEventListener(type,fn){(this.events[type]??=[]).push(fn);}
@@ -65,7 +65,7 @@ test('touch, cancel, pause, crash, persistence, and retry work together',async()
   el('retry').fire('click');frames(1);game.time=5.6;frames(1);assert.equal(el('thrust-cue').hidden,true,'the teaching cue expires');
   game.spawnIn=Infinity;game.nextChargeArcAt=Infinity;game.charge=.5;
   spawnChargeArc(game);const orb=game.chargeArcs[0].orbs[0];
-  game.grounded=false;game.y=.8;game.vy=0;game.x=orb.x;game.lane=Math.round(orb.x/3.4);orb.z=0;
+  game.grounded=false;game.y=orb.y-CHARGE.pickupCenterY-CHARGE.pickupY+.2;game.vy=0;game.x=orb.x;game.lane=Math.round(orb.x/3.4);orb.z=0;
   frames(1);assert.equal(orb.collected,true);assert.ok(game.charge>.5);
   assert.equal(el('charge-meter').classes.has('pickup'),true,'a pickup pulses the meter immediately');
   assert.ok(Number(el('charge-meter').attrs['aria-valuenow'])>50);
@@ -73,7 +73,10 @@ test('touch, cancel, pause, crash, persistence, and retry work together',async()
   game.spawnIn=Infinity;game.nextChargeArcAt=Infinity;game.charge=.001;
   frames(10);assert.equal(el('crash-reason').textContent,'OUT OF CHARGE');
   assert.equal(el('charge-meter').attrs['aria-valuenow'],0);
-  const emptyTime=game.time;frames(70);assert.equal(game.time,emptyTime,'charge failure freezes simulation');
+  assert.equal(game.dead,true);assert.equal(el('result').hidden,true,'hazards have time to flash before results');
+  const emptyTime=game.time;frames(38);assert.equal(el('result').hidden,true);
+  frames(32);assert.equal(el('result').hidden,false,'the result appears after the brief power-loss beat');
+  assert.equal(game.time,emptyTime,'charge failure freezes simulation');
   el('retry').fire('click');frames(1);assert.ok(game.charge>.999,'the new run begins full and drains once gameplay advances');assert.equal(el('charge-meter').attrs['aria-valuenow'],100);
   const html=await readFile(new URL('../index.html',import.meta.url),'utf8');
   assert.doesNotMatch(html,/id="thrust"/);assert.match(html,/id="thrust-cue"/);

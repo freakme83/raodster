@@ -76,7 +76,7 @@ function frame(now){
     if(!g.grounded&&!shownFlightHint){ui['flight-hint'].hidden=false;shownFlightHint=true;}
     if(g.grounded)ui['flight-hint'].hidden=true;
   }else if(mode==='intro'){g.distance+=dt*8;g.time+=dt;}
-  else if(mode==='crashing'){crashAge+=dt;if(crashAge>.7)setMode('result');}
+  else if(mode==='crashing'){crashAge+=dt;if(crashAge>(g.reason==='OUT OF CHARGE'?.86:.7))setMode('result');}
   renderer.render(g,mode,dt,crashAge);audio.update(g,mode==='playing');requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
