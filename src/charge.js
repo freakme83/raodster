@@ -14,7 +14,7 @@ export const CHARGE = Object.freeze({
   popDuration:.22
 });
 
-export const ARC_SHAPES=Object.freeze(['simple','cross','high','greedy']);
+export const ARC_SHAPES=Object.freeze(['simple','cross','high','greedy','far-cross']);
 const between=(r,[min,max])=>min+(max-min)*r();
 const smooth=t=>t*t*(3-2*t);
 const playerHalfLength=1.85,playerHalfWidth=.83;
@@ -48,19 +48,24 @@ export function nextArcDelay(r){return between(r,CHARGE.repeatArcWindow);}
 // Orbs occupy fixed road-world positions. Existing traffic can move beneath
 // them, so an arc does not reserve an empty or guaranteed landing corridor.
 export function spawnChargeArc(g){
-  const firstZ=Math.max(145,g.speed*2.65),spacing=11.8+g.speed*.02;
-  const lastZ=firstZ+(CHARGE.orbsPerArc-1)*spacing;
+  const firstZ=Math.max(145,g.speed*2.65),ordinarySpacing=11.8+g.speed*.02;
+  const lastZ=firstZ+(CHARGE.orbsPerArc-1)*ordinarySpacing;
   if(g.traffic.some(v=>v.wall&&v.z>firstZ-120&&v.z<lastZ+120))return false;
   const r=g.chargeRandom,roll=r();
-  const shape=g.nextChargeArcId===0?(roll<.72?'simple':'cross'):
-    roll<.38?'simple':roll<.66?'cross':roll<.79?'high':'greedy';
+  let shape=g.nextChargeArcId===0?(roll<.72?'simple':'cross'):
+    roll<.342?'simple':roll<.594?'cross':roll<.711?'high':roll<.9?'greedy':'far-cross';
+  // Only the full-road crossing needs extra travel time between orbs.
+  // Near a protected wall, use its ordinary cross sibling on the same schedule.
+  const farSpacing=Math.max(19,g.speed*.3);
+  if(shape==='far-cross'&&g.traffic.some(v=>v.wall&&v.z>lastZ+120&&v.z<firstZ+(CHARGE.orbsPerArc-1)*farSpacing+120))shape='cross';
+  const spacing=shape==='far-cross'?farSpacing:ordinarySpacing;
   const startLane=Math.floor(r()*3)-1;
   const direction=startLane===-1?1:startLane===1?-1:r()<.5?-1:1;
-  const lane=shape==='greedy'?0:startLane;
+  const lane=shape==='greedy'?0:shape==='far-cross'&&startLane===0?-direction:startLane;
   const orbs=Array.from({length:CHARGE.orbsPerArc},(_,index)=>{
     const t=index/(CHARGE.orbsPerArc-1),hump=Math.sin(Math.PI*t);
-    const x=lane*3.4+(shape==='cross'?direction*3.4*smooth(t):shape==='greedy'?direction*3.4*t*t*t:0);
-    const y=shape==='high'?3.2+2.6*hump:shape==='greedy'?2.7+1.2*hump+1.85*t*t:2.75+1.1*hump;
+    const x=lane*3.4+(shape==='far-cross'?direction*6.8*smooth(t):shape==='cross'?direction*3.4*smooth(t):shape==='greedy'?direction*3.4*t*t*t:0);
+    const y=shape==='high'?3.2+2.6*hump:shape==='greedy'?3.3+1.2*hump+1.85*t*t:3.3+1.1*hump;
     return {index,x,y,z:firstZ+index*spacing,collected:false,missed:false};
   });
   clearTrafficRoofs(g,orbs);
