@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createGame,step,speedAt,CONFIG} from '../src/physics.js';
+import {createGame,step,moveLane,speedAt,CONFIG} from '../src/physics.js';
 import {CHARGE,ARC_SHAPES,spawnChargeArc,advanceCharge} from '../src/charge.js';
 import {AudioEngine} from '../src/audio.js';
 
@@ -109,7 +109,50 @@ test('high-speed swept contact before the far face collects; a high-speed side m
   assert.equal(g.events.filter(e=>e.type==='orb').length,1);
 });
 
-test('all four six-orb shapes are elevated, smooth, and stay over the road',()=>{
+test('ordinary arc baselines rise while their profiles and the high arc stay intact',()=>{
+  const make=roll=>{
+    const g=isolated(18);g.time=25;g.speed=60;g.nextChargeArcId=1;
+    g.chargeRandom=(()=>{let i=0;return()=>[roll,.1][i++]??.1})();
+    spawnChargeArc(g);return g.chargeArcs[0];
+  };
+  const simple=make(.1),cross=make(.45),high=make(.65),greedy=make(.8);
+  for(const arc of [simple,cross]){
+    close(arc.orbs[0].y,3.3);close(arc.orbs.at(-1).y,3.3);
+    close(arc.orbs[2].y,3.3+1.1*Math.sin(2*Math.PI/5));
+  }
+  close(greedy.orbs[0].y,3.3);close(greedy.orbs.at(-1).y,5.15);
+  close(greedy.orbs[3].y,3.3+1.2*Math.sin(3*Math.PI/5)+1.85*(3/5)**2);
+  close(high.orbs[0].y,3.2);close(high.orbs.at(-1).y,3.2);
+  close(high.orbs[2].y,3.2+2.6*Math.sin(2*Math.PI/5));
+  assert.equal(simple.orbs[0].x,simple.orbs.at(-1).x);
+  close(cross.orbs.at(-1).x-cross.orbs[0].x,3.4);
+  close(greedy.orbs.at(-1).x-greedy.orbs[0].x,3.4);
+});
+
+test('far-cross traverses both outer lanes smoothly in either direction',()=>{
+  const make=laneRoll=>{
+    const g=isolated(19);g.time=25;g.speed=60;g.nextChargeArcId=1;
+    g.chargeRandom=(()=>{let i=0;return()=>[.95,laneRoll][i++]??.1})();
+    spawnChargeArc(g);return g.chargeArcs[0];
+  };
+  const left=make(.1),right=make(.9);
+  for(const [arc,start,end] of [[left,-3.4,3.4],[right,3.4,-3.4]]){
+    assert.equal(arc.shape,'far-cross');assert.equal(arc.orbs.length,6);
+    close(arc.orbs[0].x,start);close(arc.orbs.at(-1).x,end);
+    close(arc.orbs[0].y,3.3);close(arc.orbs.at(-1).y,3.3);
+    for(let i=1;i<6;i++){
+      assert.ok(Math.sign(arc.orbs[i].x-arc.orbs[i-1].x)===Math.sign(end-start));
+      assert.ok(Math.abs(arc.orbs[i].x-arc.orbs[i-1].x)<2.1);
+      assert.ok(Math.abs(arc.orbs[i].y-arc.orbs[i-1].y)<.7);
+      close(arc.orbs[i].z-arc.orbs[i-1].z,19);
+    }
+  }
+  for(let i=0;i<6;i++){close(left.orbs[i].x,-right.orbs[i].x);close(left.orbs[i].y,right.orbs[i].y);}
+  const opening=isolated(19);opening.chargeRandom=()=>.95;
+  spawnChargeArc(opening);assert.equal(opening.chargeArcs[0].shape,'cross','the introductory arc stays familiar');
+});
+
+test('all five six-orb shapes are elevated, smooth, and stay over the road',()=>{
   const seen=new Set();
   for(let seed=0;seed<80;seed++){
     const g=isolated(seed);g.time=20;g.speed=55;spawnChargeArc(g);
@@ -119,7 +162,7 @@ test('all four six-orb shapes are elevated, smooth, and stay over the road',()=>
       for(const orb of arc.orbs){assert.ok(orb.y>=2.7);assert.ok(Math.abs(orb.x)<=3.4+1e-8);}
       for(let i=1;i<arc.orbs.length;i++){
         const a=arc.orbs[i-1],b=arc.orbs[i];
-        assert.ok(b.z>a.z&&Math.abs(b.x-a.x)<1.8&&Math.abs(b.y-a.y)<1.6);
+        assert.ok(b.z>a.z&&Math.abs(b.x-a.x)<(arc.shape==='far-cross'?2.1:1.8)&&Math.abs(b.y-a.y)<1.6);
       }
     }
   }
@@ -191,8 +234,84 @@ test('high arc spacing permits the same physical climb near the speed ceiling',(
   assert.ok(g.pressure>.2);
 });
 
+test('raised cross and greedy arcs remain fully collectable using unchanged flight physics',()=>{
+  for(const [shape,roll,startLane,steerAt,pulse] of [['cross',.45,-1,0,.8],['greedy',.8,0,-20,.9]])for(const seconds of [25,110]){
+    const g=isolated(77);g.time=seconds;g.speed=speedAt(seconds);g.distance=g.speed*seconds;
+    g.nextChargeArcId=1;g.chargeRandom=(()=>{let i=0;return()=>[roll,.1][i++]??.1})();
+    g.lane=startLane;g.x=startLane*CONFIG.lane;spawnChargeArc(g);
+    const arc=g.chargeArcs[0];assert.equal(arc.shape,shape);
+    let launched=false,launchTime=0,steered=false;
+    for(let i=0;i<650&&!g.dead;i++){
+      const z=arc.orbs[0].z;
+      if(!launched&&z<55){launched=true;launchTime=g.time;}
+      if(!steered&&z<steerAt){moveLane(g,1);steered=true;}
+      const elapsed=g.time-launchTime;
+      step(g,{thrust:launched&&(elapsed<pulse||(!g.grounded&&g.y<1.7&&g.vy< -6&&g.pressure>.2))});
+      if(z<-120)break;
+    }
+    assert.equal(g.dead,false,`${shape} at ${seconds}s remains survivable`);
+    assert.equal(arc.collected,6,`${shape} at ${seconds}s can be fully collected`);
+    assert.equal(g.events.filter(e=>e.type==='fullArc').length,1);
+  }
+});
+
+test('far-cross can be fully flown in both directions at mid-run and near-ceiling speeds',()=>{
+  for(const seconds of [25,110])for(const lane of [-1,1]){
+    const g=isolated(77);g.time=seconds;g.speed=speedAt(seconds);g.distance=g.speed*seconds;
+    g.nextChargeArcId=1;g.chargeRandom=(()=>{let i=0;return()=>[.95,lane===-1?.1:.9][i++]??.1})();
+    g.lane=lane;g.x=lane*CONFIG.lane;spawnChargeArc(g);
+    const arc=g.chargeArcs[0],direction=-lane;
+    assert.equal(arc.shape,'far-cross');
+    close(arc.orbs[1].z-arc.orbs[0].z,Math.max(19,g.speed*.3));
+    let launched=false,launchTime=0,steers=0;
+    for(let i=0;i<680&&!g.dead;i++){
+      const z=arc.orbs[0].z;
+      if(!launched&&z<55){launched=true;launchTime=g.time;}
+      if(steers===0&&z<5){moveLane(g,direction);steers++;}
+      if(steers===1&&z< -35){moveLane(g,direction);steers++;}
+      const elapsed=g.time-launchTime;
+      step(g,{thrust:launched&&(elapsed<.8||(elapsed>1.55&&elapsed<2))});
+      if(z< -190)break;
+    }
+    assert.equal(g.dead,false,`far-cross from lane ${lane} at ${seconds}s remains survivable`);
+    assert.equal(steers,2);assert.equal(g.grounded,true,'the flight can end in a normal landing');
+    assert.equal(arc.collected,6,`far-cross from lane ${lane} at ${seconds}s can be fully collected`);
+    assert.equal(g.events.filter(e=>e.type==='fullArc').length,1);
+  }
+});
+
+test('a far-cross can be abandoned after partial pickups without losing charge',()=>{
+  const g=isolated(77);g.time=25;g.speed=speedAt(25);g.distance=g.speed*25;
+  g.nextChargeArcId=1;g.charge=.3;g.lane=-1;g.x=-CONFIG.lane;
+  g.chargeRandom=(()=>{let i=0;return()=>[.95,.1][i++]??.1})();
+  spawnChargeArc(g);const arc=g.chargeArcs[0],initialTime=g.time;
+  let launched=false,launchTime=0,steered=false;
+  for(let i=0;i<680&&!g.dead;i++){
+    const z=arc.orbs[0].z;
+    if(!launched&&z<55){launched=true;launchTime=g.time;}
+    if(!steered&&z<5){moveLane(g,1);steered=true;}
+    const elapsed=g.time-launchTime;
+    step(g,{thrust:launched&&(elapsed<.8||(elapsed>1.55&&elapsed<2))});
+    if(z< -190)break;
+  }
+  assert.equal(g.dead,false);assert.equal(g.grounded,true);
+  assert.ok(arc.collected>0&&arc.collected<6);
+  close(g.charge,.3-(g.time-initialTime)*CHARGE.drainPerSecond+arc.collected*CHARGE.perOrb);
+  assert.equal(arc.completed,false);assert.equal(g.events.filter(e=>e.type==='fullArc').length,0);
+});
+
+test('far-cross never extends into an existing jump-wall recovery zone',()=>{
+  const g=isolated(4);g.time=25;g.speed=60;g.nextChargeArcId=1;
+  g.chargeRandom=(()=>{let i=0;return()=>[.95,.1][i++]??.1})();
+  g.traffic=[{wall:true,z:360,x:0}];
+  assert.equal(spawnChargeArc(g),true,'the ordinary cross keeps this encounter on schedule');
+  assert.equal(g.chargeArcs[0].shape,'cross');
+  assert.ok(g.chargeArcs[0].orbs.at(-1).z+120<g.traffic[0].z);
+  assert.deepEqual(g.traffic,[{wall:true,z:360,x:0}]);
+});
+
 test('seeded schedules supply recurring theoretical charge without changing traffic randomness',()=>{
-  const shapes=new Set(),firstTimes=[],firstEncounters=[],gaps=[],encounterGaps=[];let mixedTraffic=0,highCount=0,arcCount=0,roofConflicts=0;
+  const shapes=new Set(),firstTimes=[],firstEncounters=[],gaps=[],encounterGaps=[];let mixedTraffic=0,highCount=0,farCount=0,eligibleCount=0,arcCount=0,roofConflicts=0;
   for(let seed=0;seed<100;seed++){
     const g=createGame(seed),same=createGame(seed),seen=new Set(),arrivals=new Set(),schedule=[],encounters=[];
     g.grounded=same.grounded=false;same.nextChargeArcAt=Infinity;let potential=1,lowest=1;
@@ -204,6 +323,7 @@ test('seeded schedules supply recurring theoretical charge without changing traf
         if(!seen.has(arc.id)){
           seen.add(arc.id);schedule.push({time:arc.spawnTime,shape:arc.shape,orbs:arc.orbs.map(o=>({x:o.x,y:o.y,z:o.z}))});
           arcCount++;if(arc.shape==='high')highCount++;
+          if(arc.id>0){eligibleCount++;if(arc.shape==='far-cross')farCount++;}
           shapes.add(arc.shape);
           if(g.traffic.some(v=>v.z>arc.orbs[0].z-25&&v.z<arc.orbs.at(-1).z+25))mixedTraffic++;
         }
@@ -222,6 +342,7 @@ test('seeded schedules supply recurring theoretical charge without changing traf
     assert.ok(lowest>.25,`insufficient charge opportunity for seed ${seed}: ${lowest}`);
     assert.ok(schedule.length>=10);
     assert.ok(schedule[0].time>=10&&schedule[0].time<=15);
+    assert.ok(['simple','cross'].includes(schedule[0].shape),'far-cross never opens a run');
     assert.ok(schedule[1].time<30,'a second opportunity should precede empty charge');
     assert.deepEqual(g.traffic,same.traffic,'arcs must not alter traffic generation or motion');
     firstTimes.push(schedule[0].time);
@@ -246,6 +367,7 @@ test('seeded schedules supply recurring theoretical charge without changing traf
   assert.ok(mean(encounterGaps)>8&&mean(encounterGaps)<11);
   assert.ok(mean(gaps)>8&&mean(gaps)<11);
   assert.ok(highCount/arcCount>=.1&&highCount/arcCount<=.15,`high arcs ${highCount}/${arcCount}`);
+  assert.ok(farCount/eligibleCount>=.075&&farCount/eligibleCount<=.125,`far-cross arcs ${farCount}/${eligibleCount}`);
   assert.equal(roofConflicts,0,'a collectible above a truck has a collision-free overlap altitude');
   assert.ok(mixedTraffic>50,'charge arcs should often share the forward view with traffic');
 });
