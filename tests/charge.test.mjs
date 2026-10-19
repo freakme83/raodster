@@ -1,11 +1,49 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createGame,step,moveLane,speedAt,CONFIG} from '../src/physics.js';
-import {CHARGE,ARC_SHAPES,spawnChargeArc,advanceCharge} from '../src/charge.js';
+import {CHARGE,ARC_SHAPES,spawnChargeArc,spawnBonusOrb,advanceCharge} from '../src/charge.js';
 import {AudioEngine} from '../src/audio.js';
 
 const close=(actual,expected)=>assert.ok(Math.abs(actual-expected)<1e-8,`${actual} !== ${expected}`);
-const isolated=seed=>{const g=createGame(seed);g.spawnIn=Infinity;g.nextChargeArcAt=Infinity;return g;};
+const isolated=seed=>{const g=createGame(seed);g.spawnIn=Infinity;g.nextChargeArcAt=Infinity;g.nextBonusOrbAt=Infinity;return g;};
+
+test('rare bonus opportunities use deterministic variable intervals averaging about 75 seconds',()=>{
+  const schedule=seed=>{
+    const g=createGame(seed),times=[];
+    for(let i=0;i<160;i++){
+      g.time=g.nextBonusOrbAt;advanceCharge(g,0);
+      times.push(g.time);g.bonusOrbs.length=0;
+    }
+    return times;
+  };
+  const a=schedule(41),b=schedule(41),intervals=a.slice(1).map((time,i)=>time-a[i]);
+  assert.deepEqual(a,b,'bonus schedule is reproducible from its seed');
+  assert.ok(intervals.every(interval=>interval>0));
+  assert.ok(new Set(intervals.map(x=>x.toFixed(6))).size>150,'intervals are not fixed');
+  const mean=intervals.reduce((sum,x)=>sum+x,0)/intervals.length;
+  assert.ok(mean>60&&mean<90,`mean opportunity interval ${mean} seconds`);
+});
+
+test('bonus orb is standalone, near the reachable apex, and pays exactly half capacity once',()=>{
+  const g=isolated(42);g.time=15;g.speed=60;
+  assert.equal(spawnBonusOrb(g),true);assert.equal(spawnBonusOrb(g),false);
+  assert.equal(g.bonusOrbs.length,1);assert.equal(g.chargeArcs.length,0);
+  const orb=g.bonusOrbs[0];assert.equal(orb.y,7.8);assert.ok(orb.z>0);
+  // With existing thrust/pressure physics, a sustained launch reaches this height.
+  const flight=isolated(43);let peak=0;
+  for(let i=0;i<1200&&!flight.dead;i++){
+    step(flight,{thrust:true});peak=Math.max(peak,flight.y);
+    if(flight.grounded&&i>20)break;
+  }
+  assert.ok(peak>orb.y-.5,`existing thrust reaches ${peak.toFixed(2)}m`);
+
+  g.grounded=false;g.x=orb.x;g.y=orb.y-CHARGE.pickupCenterY;g.charge=.2;orb.z=0;
+  advanceCharge(g,0);close(g.charge,.7);assert.equal(g.bonusOrbs.length,0);
+  advanceCharge(g,0);close(g.charge,.7,'a collected bonus cannot pay twice');
+  const capped=isolated(44);spawnBonusOrb(capped);const full=capped.bonusOrbs[0];
+  capped.grounded=false;capped.x=full.x;capped.y=full.y-CHARGE.pickupCenterY;capped.charge=.8;full.z=0;
+  advanceCharge(capped,0);close(capped.charge,1);
+});
 
 test('eight-percent orbs pay exactly once, partial rewards persist, and FULL ARC gives no bonus',()=>{
   close(CHARGE.drainPerSecond,1/40);close(CHARGE.perOrb,.08);

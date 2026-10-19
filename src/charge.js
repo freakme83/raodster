@@ -11,7 +11,10 @@ export const CHARGE = Object.freeze({
   pickupY:1.08,
   pickupZ:3.15,
   minimumPickupAltitude:.45,
-  popDuration:.22
+  popDuration:.22,
+  bonusMeanInterval:75,
+  bonusHeight:7.8,
+  bonusReward:.5
 });
 
 export const ARC_SHAPES=Object.freeze(['simple','cross','high','greedy','far-cross']);
@@ -44,6 +47,15 @@ function clearTrafficRoofs(g,orbs){
 
 export function firstArcAt(r){return between(r,CHARGE.firstArcWindow);}
 export function nextArcDelay(r){return between(r,CHARGE.repeatArcWindow);}
+export function nextBonusDelay(r){return -Math.log(Math.max(Number.EPSILON,1-r()))*CHARGE.bonusMeanInterval;}
+
+// Bonus charge appears independently from normal six-orb arcs and their RNG.
+export function spawnBonusOrb(g){
+  if(g.bonusOrbs.length)return false;
+  const lane=Math.floor(g.bonusRandom()*3)-1;
+  g.bonusOrbs.push({x:lane*3.4,y:CHARGE.bonusHeight,z:Math.max(145,g.speed*3),collected:false,missed:false});
+  return true;
+}
 
 // Orbs occupy fixed road-world positions. Existing traffic can move beneath
 // them, so an arc does not reserve an empty or guaranteed landing corridor.
@@ -98,6 +110,10 @@ function crossesCollector(g,orb,previous,dt){
 
 export function advanceCharge(g,dt,previous={x:g.x,y:g.y}){
   g.charge=Math.max(0,g.charge-CHARGE.drainPerSecond*dt);
+  if(g.time>=g.nextBonusOrbAt){
+    spawnBonusOrb(g);
+    g.nextBonusOrbAt=g.time+nextBonusDelay(g.bonusRandom);
+  }
   if(g.time>=g.nextChargeArcAt){
     if(spawnChargeArc(g))g.nextChargeArcAt=g.time+nextArcDelay(g.chargeRandom);
     else g.nextChargeArcAt=g.time+1.25;
@@ -115,6 +131,16 @@ export function advanceCharge(g,dt,previous={x:g.x,y:g.y}){
     g.events.push({type:'orb',arcId:arc.id,index:orb.index,chain});
     if(arc.collected===CHARGE.orbsPerArc&&!arc.completed){arc.completed=true;g.events.push({type:'fullArc',arcId:arc.id});}
   }
+  for(const orb of g.bonusOrbs){
+    const touched=!orb.collected&&!orb.missed&&crossesCollector(g,orb,previous,dt);
+    orb.z-=g.speed*dt;
+    if(orb.collected||orb.missed)continue;
+    if(!touched){if(orb.z< -CHARGE.pickupZ)orb.missed=true;continue;}
+    orb.collected=true;g.charge=Math.min(1,g.charge+CHARGE.bonusReward);
+    g.orbPops.push({x:orb.x,y:orb.y,z:orb.z,age:0,bonus:true});
+    g.events.push({type:'orb',arcId:null,index:0,chain:1,bonus:true});
+  }
+  g.bonusOrbs=g.bonusOrbs.filter(orb=>!orb.missed&&!orb.collected);
   g.chargeArcs=g.chargeArcs.filter(arc=>arc.orbs.at(-1).z>-25);
   for(const pop of g.orbPops){pop.z-=g.speed*dt;pop.age+=dt;}
   g.orbPops=g.orbPops.filter(pop=>pop.age<CHARGE.popDuration);

@@ -133,10 +133,22 @@ export class Renderer {
     this.poly([{x:p.x,y:p.y-size},{x:p.x+size*.77,y:p.y-size*.23},{x:p.x+size*.72,y:p.y+size*.47},{x:p.x,y:p.y+size},{x:p.x-size*.72,y:p.y+size*.47},{x:p.x-size*.77,y:p.y-size*.23}],'#d49e57');
     this.poly([{x:p.x,y:p.y-size*.69},{x:p.x+size*.4,y:p.y},{x:p.x,y:p.y+size*.56},{x:p.x-size*.4,y:p.y}],'#edd19c');
   }
+  bonusOrb(orb,time){
+    const p=this.point(orb.x,orb.y,orb.z);if(!p)return;
+    const c=this.c,r=Math.min(17,Math.max(4.5,p.s*.84)),halo=r*1.42;
+    const glow=c.createRadialGradient(p.x,p.y,r*.55,p.x,p.y,halo);
+    glow.addColorStop(0,'rgba(100,211,155,.3)');glow.addColorStop(1,'rgba(100,211,155,0)');
+    c.fillStyle=glow;c.fillRect(p.x-halo,p.y-halo,halo*2,halo*2);
+    const shimmer=this.reducedMotion?1:.97+.03*Math.sin(time*6);
+    const size=r*shimmer;
+    this.poly([{x:p.x,y:p.y-size},{x:p.x+size*.77,y:p.y-size*.23},{x:p.x+size*.72,y:p.y+size*.47},{x:p.x,y:p.y+size},{x:p.x-size*.72,y:p.y+size*.47},{x:p.x-size*.77,y:p.y-size*.23}],'#39a978');
+    this.poly([{x:p.x,y:p.y-size*.62},{x:p.x+size*.36,y:p.y},{x:p.x,y:p.y+size*.5},{x:p.x-size*.36,y:p.y}],'#a7dfb8');
+  }
   chargePop(pop){
     const p=this.point(pop.x,pop.y,pop.z);if(!p)return;
     const t=Math.min(1,pop.age/CHARGE.popDuration),size=Math.min(14,Math.max(4,p.s*.65))*(1-t*.72);
-    this.poly([{x:p.x,y:p.y-size},{x:p.x+size*.65,y:p.y},{x:p.x,y:p.y+size},{x:p.x-size*.65,y:p.y}],`rgba(244,209,147,${.8*(1-t)})`);
+    const tint=pop.bonus?'76,196,132':'244,209,147';
+    this.poly([{x:p.x,y:p.y-size},{x:p.x+size*.65,y:p.y},{x:p.x,y:p.y+size},{x:p.x-size*.65,y:p.y}],`rgba(${tint},${.8*(1-t)})`);
   }
   scenery(g,faces){
     for(let i=0;i<19;i++){
@@ -163,6 +175,7 @@ export class Renderer {
     for(const v of [...g.traffic].sort((a,b)=>b.z-a.z))if(v.z>-6&&v.z<380)this.car(v,false,g,faces);
     const playerTransform=this.car({x:g.x,z:0,width:2.04,length:3.85,height:1.15,color:'#eeeae3'},true,g,faces);
     for(const arc of g.chargeArcs)for(const orb of arc.orbs)if(!orb.collected&&!orb.missed&&orb.z>-6&&orb.z<330)faces.push({z:orb.z,draw:()=>this.chargeOrb(orb,g.time)});
+    for(const orb of g.bonusOrbs)if(!orb.collected&&!orb.missed&&orb.z>-6&&orb.z<330)faces.push({z:orb.z,draw:()=>this.bonusOrb(orb,g.time)});
     faces.sort((a,b)=>b.z-a.z);for(const face of faces)if(face.draw)face.draw();else this.world(face.vertices,face.color);
     for(const pop of g.orbPops)this.chargePop(pop);
     this.lateralJets(g,playerTransform);
