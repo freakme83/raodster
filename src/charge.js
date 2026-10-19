@@ -13,7 +13,7 @@ export const CHARGE = Object.freeze({
   minimumPickupAltitude:.45,
   popDuration:.22,
   bonusMeanInterval:75,
-  bonusHeight:7.8,
+  bonusHeight:5.5,
   bonusReward:.5
 });
 
@@ -49,11 +49,22 @@ export function firstArcAt(r){return between(r,CHARGE.firstArcWindow);}
 export function nextArcDelay(r){return between(r,CHARGE.repeatArcWindow);}
 export function nextBonusDelay(r){return -Math.log(Math.max(Number.EPSILON,1-r()))*CHARGE.bonusMeanInterval;}
 
+function bonusCanSpawn(g,spawnZ){
+  const visibleLifetime=(spawnZ+6)/g.speed;
+  for(const arc of g.chargeArcs)for(const orb of arc.orbs){
+    if(orb.collected||orb.missed)continue;
+    // Include yellow orbs that will enter the renderer's 330 m range before
+    // this green orb has passed the near edge of the view.
+    if(orb.z>-6&&orb.z<330+g.speed*visibleLifetime)return false;
+  }
+  return g.nextChargeArcAt-g.time>visibleLifetime;
+}
+
 // Bonus charge appears independently from normal six-orb arcs and their RNG.
-export function spawnBonusOrb(g){
-  if(g.bonusOrbs.length)return false;
-  const lane=Math.floor(g.bonusRandom()*3)-1;
-  g.bonusOrbs.push({x:lane*3.4,y:CHARGE.bonusHeight,z:Math.max(145,g.speed*3),collected:false,missed:false});
+export function spawnBonusOrb(g,lane=Math.floor(g.bonusRandom()*3)-1){
+  const spawnZ=Math.max(145,g.speed*3);
+  if(g.bonusOrbs.length||!bonusCanSpawn(g,spawnZ))return false;
+  g.bonusOrbs.push({x:lane*3.4,y:CHARGE.bonusHeight,z:spawnZ,collected:false,missed:false});
   return true;
 }
 
@@ -111,9 +122,15 @@ function crossesCollector(g,orb,previous,dt){
 export function advanceCharge(g,dt,previous={x:g.x,y:g.y}){
   g.charge=Math.max(0,g.charge-CHARGE.drainPerSecond*dt);
   if(g.time>=g.nextBonusOrbAt){
-    spawnBonusOrb(g);
+    // Preserve the opportunity, and its lane roll, if yellow traffic occupies
+    // the view. The separate timer keeps producing irregular opportunities.
+    (g.pendingBonusLanes??=[]).push(Math.floor(g.bonusRandom()*3)-1);
     g.nextBonusOrbAt=g.time+nextBonusDelay(g.bonusRandom);
   }
+  const spawnZ=Math.max(145,g.speed*3);
+  if(g.pendingBonusLanes?.length&&!g.bonusOrbs.length&&bonusCanSpawn(g,spawnZ)&&
+      g.bonusRandom()<1-Math.exp(-dt/.35))
+    spawnBonusOrb(g,g.pendingBonusLanes.shift());
   if(g.time>=g.nextChargeArcAt){
     if(spawnChargeArc(g))g.nextChargeArcAt=g.time+nextArcDelay(g.chargeRandom);
     else g.nextChargeArcAt=g.time+1.25;
