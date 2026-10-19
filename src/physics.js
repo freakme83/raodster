@@ -1,5 +1,5 @@
 // All units are metres / seconds. Rendering never changes simulation state.
-import {firstArcAt,advanceCharge} from './charge.js';
+import {firstArcAt,nextBonusDelay,advanceCharge} from './charge.js';
 export const CONFIG = Object.freeze({lane:3.4,roadHalf:5.25,halfWidth:.83,halfLength:1.85,gravity:11,thrust:25,launchBoost:1.5,groundSteeringStiffness:84,airSteeringStiffness:22.04,drain:.43,recharge:.32,maxFall:11.5,maxAngle:25*Math.PI/180,step:1/120});
 export const MIN_MEANINGFUL_AIRTIME = 1;
 export const TYPES = Object.freeze([
@@ -56,7 +56,8 @@ function peakLength(r){
 }
 export function createGame(seed=Date.now()) {
   const chargeRandom=randomSeed((seed^0x9e3779b9)>>>0);
-  return {time:0,distance:0,speed:27,pressure:1,charge:1,x:0,vx:0,lane:0,y:0,vy:0,roll:0,rollV:0,pitch:0,grounded:true,preload:0,thrusting:false,impact:0,instability:0,traffic:[],chargeArcs:[],orbPops:[],events:[],dead:false,reason:null,spawnIn:1.4,waves:0,lastWall:-100,random:randomSeed(seed),chargeRandom,nextChargeArcAt:firstArcAt(chargeRandom),nextChargeArcId:0,orbChain:null,lowChargeWarned:false,jumpPasses:0,airTime:0,lastSafeLane:0,lastWasWall:false,peakRows:0,lastPeak:-100,recoveryDue:false,optionalRows:0,optionalId:0,lastOptional:-100};
+  const bonusRandom=randomSeed((seed^0x85ebca6b)>>>0);
+  return {time:0,distance:0,speed:27,pressure:1,charge:1,x:0,vx:0,lane:0,y:0,vy:0,roll:0,rollV:0,pitch:0,grounded:true,preload:0,thrusting:false,impact:0,instability:0,traffic:[],chargeArcs:[],bonusOrbs:[],orbPops:[],events:[],dead:false,reason:null,spawnIn:1.4,waves:0,lastWall:-100,random:randomSeed(seed),chargeRandom,nextChargeArcAt:firstArcAt(chargeRandom),nextChargeArcId:0,bonusRandom,nextBonusOrbAt:nextBonusDelay(bonusRandom),orbChain:null,lowChargeWarned:false,jumpPasses:0,airTime:0,lastSafeLane:0,lastWasWall:false,peakRows:0,lastPeak:-100,recoveryDue:false,optionalRows:0,optionalId:0,lastOptional:-100};
 }
 export function moveLane(g,dir){
   if(g.dead)return;

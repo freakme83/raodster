@@ -1,11 +1,148 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createGame,step,moveLane,speedAt,CONFIG} from '../src/physics.js';
-import {CHARGE,ARC_SHAPES,spawnChargeArc,advanceCharge} from '../src/charge.js';
+import {CHARGE,ARC_SHAPES,spawnChargeArc,spawnBonusOrb,advanceCharge} from '../src/charge.js';
 import {AudioEngine} from '../src/audio.js';
 
 const close=(actual,expected)=>assert.ok(Math.abs(actual-expected)<1e-8,`${actual} !== ${expected}`);
-const isolated=seed=>{const g=createGame(seed);g.spawnIn=Infinity;g.nextChargeArcAt=Infinity;return g;};
+const isolated=seed=>{const g=createGame(seed);g.spawnIn=Infinity;g.nextChargeArcAt=Infinity;g.nextBonusOrbAt=Infinity;return g;};
+
+test('rare bonus opportunities use deterministic variable intervals averaging about 75 seconds',()=>{
+  const schedule=seed=>{
+    const g=createGame(seed),times=[];
+    for(let i=0;i<160;i++){
+      g.time=g.nextBonusOrbAt;advanceCharge(g,0);
+      times.push(g.time);g.bonusOrbs.length=0;
+    }
+    return times;
+  };
+  const a=schedule(41),b=schedule(41),intervals=a.slice(1).map((time,i)=>time-a[i]);
+  assert.deepEqual(a,b,'bonus schedule is reproducible from its seed');
+  assert.ok(intervals.every(interval=>interval>0));
+  assert.ok(new Set(intervals.map(x=>x.toFixed(6))).size>150,'intervals are not fixed');
+  const mean=intervals.reduce((sum,x)=>sum+x,0)/intervals.length;
+  assert.ok(mean>60&&mean<90,`mean opportunity interval ${mean} seconds`);
+});
+
+test('bonus orb is standalone, lower than the old marginal height, and pays exactly half capacity once',()=>{
+  const g=isolated(42);g.time=15;g.speed=60;
+  assert.equal(spawnBonusOrb(g),true);assert.equal(spawnBonusOrb(g),false);
+  assert.equal(g.bonusOrbs.length,1);assert.equal(g.chargeArcs.length,0);
+  const orb=g.bonusOrbs[0];assert.equal(orb.y,5.5);assert.ok(orb.z>0);
+  // With existing thrust/pressure physics, a sustained launch reaches this height.
+  const flight=isolated(43);let peak=0;
+  for(let i=0;i<1200&&!flight.dead;i++){
+    step(flight,{thrust:true});peak=Math.max(peak,flight.y);
+    if(flight.grounded&&i>20)break;
+  }
+  assert.ok(peak>orb.y-.5,`existing thrust reaches ${peak.toFixed(2)}m`);
+
+  g.grounded=false;g.x=orb.x;g.y=orb.y-CHARGE.pickupCenterY;g.charge=.2;orb.z=0;
+  advanceCharge(g,0);close(g.charge,.7);assert.equal(g.bonusOrbs.length,0);
+  advanceCharge(g,0);close(g.charge,.7,'a collected bonus cannot pay twice');
+  const capped=isolated(44);spawnBonusOrb(capped);const full=capped.bonusOrbs[0];
+  capped.grounded=false;capped.x=full.x;capped.y=full.y-CHARGE.pickupCenterY;capped.charge=.8;full.z=0;
+  advanceCharge(capped,0);close(capped.charge,1);
+});
+
+test('late-speed green orb remains collectable after realistic reaction and launch time',()=>{
+  const g=isolated(45);g.time=100;g.distance=8000;g.speed=80;
+  g.bonusRandom=()=>.5;
+  assert.equal(spawnBonusOrb(g),true);const orb=g.bonusOrbs[0];
+  let collected=false;
+  for(let i=0;i<360&&!g.dead;i++){
+    const elapsed=i*CONFIG.step;
+    // Allow a 0.4 s visual reaction, then hold the existing launch input.
+    step(g,{thrust:elapsed>=.4&&elapsed<1.8});
+    if(orb.collected){collected=true;break;}
+  }
+  assert.equal(collected,true,'the swept collector overlaps the orb after a non-perfect reaction');
+  assert.equal(g.events.filter(e=>e.bonus).length,1);
+});
+
+test('green-only pickup tolerance is modestly wider while yellow hitboxes stay unchanged',()=>{
+  assert.equal(CHARGE.pickupX,1.18);assert.equal(CHARGE.pickupY,1.08);assert.equal(CHARGE.pickupZ,3.15);
+  assert.equal(CHARGE.bonusPickupX,1.4);assert.equal(CHARGE.bonusPickupY,1.25);assert.equal(CHARGE.pickupZ,3.15);
+  const pickup=(x,y)=>{
+    const g=isolated(451);g.grounded=false;
+    const orb={x:0,y:5.5,z:0,collected:false,missed:false};g.bonusOrbs=[orb];
+    g.x=-x;g.y=orb.y-CHARGE.pickupCenterY+y;
+    advanceCharge(g,0);
+    return {g,orb};
+  };
+  const inside=pickup(1.39,0);assert.equal(inside.orb.collected,true,'just-inside bonus radius collects');
+  assert.equal(inside.g.events.filter(e=>e.type==='orb'&&e.bonus).length,1);
+  assert.equal(inside.g.orbPops.filter(pop=>pop.bonus).length,1);
+  advanceCharge(inside.g,0);assert.equal(inside.g.events.filter(e=>e.type==='orb'&&e.bonus).length,1,'collection feedback event is emitted once');
+  const outside=pickup(1.41,0);assert.equal(outside.orb.collected,false,'just-outside bonus radius misses');
+  assert.equal(outside.g.events.filter(e=>e.type==='orb').length,0,'a pass without collection emits no feedback event');
+  const verticalOutside=pickup(0,1.26);assert.equal(verticalOutside.orb.collected,false);
+});
+
+test('bonus opportunities suppress against present or soon-visible yellow orbs without consuming yellow RNG',()=>{
+  const g=isolated(46);g.time=30;g.speed=80;
+  let rolls=0;g.bonusRandom=()=>{rolls++;return .75;};
+  const spawnZ=Math.max(145,g.speed*3),lifetime=(spawnZ+6)/g.speed;
+  g.chargeArcs=[{orbs:[{z:200,collected:false,missed:false}]}];
+  assert.equal(spawnBonusOrb(g),false,'a yellow orb already visible suppresses green');
+  assert.equal(rolls,1,'the ordinary green lane roll is consumed even on suppression');
+  g.chargeArcs=[{orbs:[{z:330+g.speed*lifetime-1,collected:false,missed:false}]}];
+  assert.equal(spawnBonusOrb(g),false,'a yellow orb entering view before green leaves suppresses green');
+  g.chargeArcs=[];g.nextChargeArcAt=g.time+lifetime/2;
+  assert.equal(spawnBonusOrb(g),false,'an upcoming yellow opportunity suppresses green');
+  g.nextChargeArcAt=g.time+lifetime+1;
+  assert.equal(spawnBonusOrb(g),true,'a safe gap permits green');
+  assert.equal(rolls,4);
+});
+
+test('yellow arc schedule and patterns are identical with green opportunities enabled or disabled',()=>{
+  const schedule=bonusEnabled=>{
+    const g=createGame(4701),result=[];g.traffic=[];g.speed=80;g.time=0;
+    if(!bonusEnabled)g.nextBonusOrbAt=Infinity;
+    let seen=0;
+    for(let i=0;i<24000;i++){
+      advanceCharge(g,CONFIG.step);
+      g.time+=CONFIG.step;
+      while(seen<g.nextChargeArcId){
+        const arc=g.chargeArcs.find(item=>item.id===seen);
+        if(arc)result.push({time:arc.spawnTime,shape:arc.shape,orbs:arc.orbs.map(({x,y,z})=>({x,y,z}))});
+        seen++;
+      }
+    }
+    return result;
+  };
+  assert.deepEqual(schedule(true),schedule(false));
+});
+
+test('green and yellow orbs never coexist anywhere in the renderer visible range',()=>{
+  const g=createGame(4702);g.traffic=[];g.speed=80;g.nextChargeArcAt=1;
+  for(let i=0;i<30000;i++){
+    advanceCharge(g,CONFIG.step);g.time+=CONFIG.step;
+    const yellow=g.chargeArcs.flatMap(arc=>arc.orbs).some(orb=>!orb.collected&&!orb.missed&&orb.z>-6&&orb.z<330);
+    const green=g.bonusOrbs.some(orb=>!orb.collected&&!orb.missed&&orb.z>-6&&orb.z<330);
+    assert.equal(yellow&&green,false,`simultaneous visible orbs at ${g.time.toFixed(2)}s`);
+  }
+});
+
+test('deferred green opportunities retain a variable 60–90 second runtime spawn cadence',()=>{
+  const intervals=[];
+  for(let seed=1;seed<=20;seed++){
+    const g=createGame(seed),times=[];g.traffic=[];g.speed=80;let previousOrb=null;
+    const steps=Math.floor(3600/CONFIG.step);
+    for(let i=0;i<steps;i++){
+      advanceCharge(g,CONFIG.step);
+      const currentOrb=g.bonusOrbs[0]??null;
+      if(currentOrb&&currentOrb!==previousOrb)times.push(g.time);
+      previousOrb=currentOrb;
+      g.time+=CONFIG.step;
+    }
+    intervals.push(...times.slice(1).map((time,i)=>time-times[i]));
+  }
+  assert.ok(intervals.length>700,`expected many observed intervals, got ${intervals.length}`);
+  const mean=intervals.reduce((sum,x)=>sum+x,0)/intervals.length;
+  assert.ok(mean>60&&mean<90,`actual spawn interval mean was ${mean.toFixed(2)} seconds`);
+  assert.ok(new Set(intervals.map(x=>x.toFixed(2))).size>100,'runtime spawn cadence remains irregular');
+});
 
 test('eight-percent orbs pay exactly once, partial rewards persist, and FULL ARC gives no bonus',()=>{
   close(CHARGE.drainPerSecond,1/40);close(CHARGE.perOrb,.08);
@@ -381,4 +518,13 @@ test('low-charge audio warns once and successive pickups rise gently in pitch',(
   const audio=new AudioEngine(),tones=[];audio.tone=f=>tones.push(f);
   for(let chain=1;chain<=6;chain++)audio.event({type:'orb',chain});
   assert.ok(tones[0]<tones[2]&&tones[2]<tones[4]&&tones[8]<tones[10]);
+});
+
+test('bonus collection uses a distinct two-note sound once while normal orb sound is unchanged',()=>{
+  const audio=new AudioEngine(),tones=[];audio.tone=(...args)=>tones.push(args);
+  audio.event({type:'orb',chain:1});
+  assert.deepEqual(tones.map(t=>t[0]),[740,1480]);
+  tones.length=0;audio.event({type:'orb',chain:1,bonus:true});
+  assert.deepEqual(tones.map(t=>t[0]),[880,1175]);
+  assert.equal(tones.length,2,'one successful bonus event schedules one recognizable two-note sound');
 });

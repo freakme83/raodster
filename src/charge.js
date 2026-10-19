@@ -9,9 +9,15 @@ export const CHARGE = Object.freeze({
   pickupCenterY:.62,
   pickupX:1.18,
   pickupY:1.08,
+  bonusPickupX:1.4,
+  bonusPickupY:1.25,
   pickupZ:3.15,
   minimumPickupAltitude:.45,
-  popDuration:.22
+  popDuration:.22,
+  bonusPopDuration:.36,
+  bonusMeanInterval:75,
+  bonusHeight:5.5,
+  bonusReward:.5
 });
 
 export const ARC_SHAPES=Object.freeze(['simple','cross','high','greedy','far-cross']);
@@ -44,6 +50,26 @@ function clearTrafficRoofs(g,orbs){
 
 export function firstArcAt(r){return between(r,CHARGE.firstArcWindow);}
 export function nextArcDelay(r){return between(r,CHARGE.repeatArcWindow);}
+export function nextBonusDelay(r){return -Math.log(Math.max(Number.EPSILON,1-r()))*CHARGE.bonusMeanInterval;}
+
+function bonusCanSpawn(g,spawnZ){
+  const visibleLifetime=(spawnZ+6)/g.speed;
+  for(const arc of g.chargeArcs)for(const orb of arc.orbs){
+    if(orb.collected||orb.missed)continue;
+    // Include yellow orbs that will enter the renderer's 330 m range before
+    // this green orb has passed the near edge of the view.
+    if(orb.z>-6&&orb.z<330+g.speed*visibleLifetime)return false;
+  }
+  return g.nextChargeArcAt-g.time>visibleLifetime;
+}
+
+// Bonus charge appears independently from normal six-orb arcs and their RNG.
+export function spawnBonusOrb(g,lane=Math.floor(g.bonusRandom()*3)-1){
+  const spawnZ=Math.max(145,g.speed*3);
+  if(g.bonusOrbs.length||!bonusCanSpawn(g,spawnZ))return false;
+  g.bonusOrbs.push({x:lane*3.4,y:CHARGE.bonusHeight,z:spawnZ,collected:false,missed:false});
+  return true;
+}
 
 // Orbs occupy fixed road-world positions. Existing traffic can move beneath
 // them, so an arc does not reserve an empty or guaranteed landing corridor.
@@ -75,11 +101,11 @@ export function spawnChargeArc(g){
 
 // Sweep the orb against the car's visible body volume over this fixed step.
 // The relative segment also catches a fast pass that ends beyond the near face.
-function crossesCollector(g,orb,previous,dt){
+function crossesCollector(g,orb,previous,dt,bonus=false){
   if(g.grounded)return false;
   const start=[orb.x-previous.x,orb.y-previous.y-CHARGE.pickupCenterY,orb.z];
   const end=[orb.x-g.x,orb.y-g.y-CHARGE.pickupCenterY,orb.z-g.speed*dt];
-  const half=[CHARGE.pickupX,CHARGE.pickupY,CHARGE.pickupZ];
+  const half=[bonus?CHARGE.bonusPickupX:CHARGE.pickupX,bonus?CHARGE.bonusPickupY:CHARGE.pickupY,CHARGE.pickupZ];
   let entry=0,exit=1;
   for(let axis=0;axis<3;axis++){
     const delta=end[axis]-start[axis];
@@ -98,6 +124,16 @@ function crossesCollector(g,orb,previous,dt){
 
 export function advanceCharge(g,dt,previous={x:g.x,y:g.y}){
   g.charge=Math.max(0,g.charge-CHARGE.drainPerSecond*dt);
+  if(g.time>=g.nextBonusOrbAt){
+    // Preserve the opportunity, and its lane roll, if yellow traffic occupies
+    // the view. The separate timer keeps producing irregular opportunities.
+    (g.pendingBonusLanes??=[]).push(Math.floor(g.bonusRandom()*3)-1);
+    g.nextBonusOrbAt=g.time+nextBonusDelay(g.bonusRandom);
+  }
+  const spawnZ=Math.max(145,g.speed*3);
+  if(g.pendingBonusLanes?.length&&!g.bonusOrbs.length&&bonusCanSpawn(g,spawnZ)&&
+      g.bonusRandom()<1-Math.exp(-dt/.35))
+    spawnBonusOrb(g,g.pendingBonusLanes.shift());
   if(g.time>=g.nextChargeArcAt){
     if(spawnChargeArc(g))g.nextChargeArcAt=g.time+nextArcDelay(g.chargeRandom);
     else g.nextChargeArcAt=g.time+1.25;
@@ -115,9 +151,19 @@ export function advanceCharge(g,dt,previous={x:g.x,y:g.y}){
     g.events.push({type:'orb',arcId:arc.id,index:orb.index,chain});
     if(arc.collected===CHARGE.orbsPerArc&&!arc.completed){arc.completed=true;g.events.push({type:'fullArc',arcId:arc.id});}
   }
+  for(const orb of g.bonusOrbs){
+    const touched=!orb.collected&&!orb.missed&&crossesCollector(g,orb,previous,dt,true);
+    orb.z-=g.speed*dt;
+    if(orb.collected||orb.missed)continue;
+    if(!touched){if(orb.z< -CHARGE.pickupZ)orb.missed=true;continue;}
+    orb.collected=true;g.charge=Math.min(1,g.charge+CHARGE.bonusReward);
+    g.orbPops.push({x:orb.x,y:orb.y,z:orb.z,age:0,bonus:true});
+    g.events.push({type:'orb',arcId:null,index:0,chain:1,bonus:true});
+  }
+  g.bonusOrbs=g.bonusOrbs.filter(orb=>!orb.missed&&!orb.collected);
   g.chargeArcs=g.chargeArcs.filter(arc=>arc.orbs.at(-1).z>-25);
   for(const pop of g.orbPops){pop.z-=g.speed*dt;pop.age+=dt;}
-  g.orbPops=g.orbPops.filter(pop=>pop.age<CHARGE.popDuration);
+  g.orbPops=g.orbPops.filter(pop=>pop.age<(pop.bonus?CHARGE.bonusPopDuration:CHARGE.popDuration));
   if(g.charge>CHARGE.lowThreshold+.08)g.lowChargeWarned=false;
   if(g.charge>0&&g.charge<CHARGE.lowThreshold&&!g.lowChargeWarned){g.lowChargeWarned=true;g.events.push({type:'lowCharge'});}
   return g.charge===0;
