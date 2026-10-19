@@ -40,9 +40,19 @@ export function encounterGapSeconds(time,kind='flow'){
   const intensity=intensityAt(time);
   if(kind==='peak')return .95-.3*intensity;
   if(kind==='optional')return .48+.06*(1-intensity);
-  if(kind==='recovery')return 2.5-.8*intensity;
+  if(kind==='recovery')return 1.7-.5*intensity;
   if(kind==='opening')return 2.9-.8*intensity;
   return 2.55-1.8*intensity;
+}
+function peakLength(r){
+  const roll=r();
+  if(roll<.08)return 4;
+  if(roll<.21)return 5;
+  if(roll<.36)return 6;
+  if(roll<.56)return 7;
+  if(roll<.76)return 8;
+  if(roll<.90)return 9;
+  return 10;
 }
 export function createGame(seed=Date.now()) {
   const chargeRandom=randomSeed((seed^0x9e3779b9)>>>0);
@@ -82,14 +92,15 @@ export function spawnWave(g){
     g.optionalLaneSpeeds=laneSpeeds;
   }
   if(g.peakRows===0&&g.optionalRows===0&&!g.recoveryDue&&g.time>28&&g.time-g.lastPeak>28&&r()<.14+intensity*.12){
-    g.peakRows=7+Math.floor(r()*3);
+    g.peakRows=peakLength(r);
     g.lastPeak=g.time;
   }
   const peak=g.peakRows>0,optional=g.optionalRows>0,recovery=g.recoveryDue;
   const kind=peak?'peak':optional?'optional':recovery?'recovery':'flow';
   const wall=peak&&g.peakRows===1&&g.time-g.lastWall>22&&r()<.55;
+  const lighterPeakRow=peak&&g.peakRows>1&&!wall&&r()<.13;
   const maxType=g.time<18?3:g.distance<900?4:6;
-  const count=wall?3:peak||optional?2:recovery||g.time<6?1:(r()<.38+intensity*.5?2:1);
+  const count=wall?3:peak?(lighterPeakRow?1:2):optional?2:recovery||g.time<6?1:(r()<.38+intensity*.5?2:1);
   const lanes=wall?[-1,0,1]:[];
   let safeLane=g.lastSafeLane;
   if(count===2){
