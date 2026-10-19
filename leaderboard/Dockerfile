@@ -2,6 +2,7 @@ FROM node:24-bookworm-slim
 
 WORKDIR /app
 COPY package.json ./package.json
+COPY src/charge.js ./src/charge.js
 COPY src/physics.js ./src/physics.js
 COPY leaderboard/package.json ./leaderboard/package.json
 COPY leaderboard/src ./leaderboard/src
