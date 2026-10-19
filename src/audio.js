@@ -22,7 +22,8 @@ export class AudioEngine {
     if(e.type==='lane')this.noiseHit(.08,.04);
     if(e.type==='launch')this.tone(90,.18,.13,'sine',180);
     if(e.type==='charged')this.tone(660,.1,.04,'sine',880);
-    if(e.type==='orb'){const pitch=740+Math.min(e.chain-1,5)*65;this.tone(pitch,.11,.075,'sine',pitch*1.2);this.tone(pitch*2,.055,.012,'sine');}
+    if(e.type==='orb'&&e.bonus){this.tone(880,.14,.075,'sine',1175);this.tone(1175,.2,.045,'sine',1568,.075);}
+    else if(e.type==='orb'){const pitch=740+Math.min(e.chain-1,5)*65;this.tone(pitch,.11,.075,'sine',pitch*1.2);this.tone(pitch*2,.055,.012,'sine');}
     if(e.type==='fullArc'){this.tone(980,.15,.075,'sine',1170);this.tone(1310,.2,.055,'sine',1450,.07);}
     if(e.type==='lowCharge')this.tone(280,.22,.065,'triangle',200);
     if(e.type==='close')this.tone(430,.12,.07,'sine',720);

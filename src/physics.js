@@ -1,6 +1,6 @@
 // All units are metres / seconds. Rendering never changes simulation state.
-import {firstArcAt,advanceCharge} from './charge.js';
-export const CONFIG = Object.freeze({lane:3.4,roadHalf:5.25,halfWidth:.83,halfLength:1.85,gravity:11,thrust:25,drain:.43,recharge:.32,maxFall:11.5,maxAngle:25*Math.PI/180,step:1/120});
+import {firstArcAt,nextBonusDelay,advanceCharge} from './charge.js';
+export const CONFIG = Object.freeze({lane:3.4,roadHalf:5.25,halfWidth:.83,halfLength:1.85,gravity:11,thrust:25,launchBoost:1.5,groundSteeringStiffness:84,airSteeringStiffness:22.04,drain:.43,recharge:.32,maxFall:11.5,maxAngle:25*Math.PI/180,step:1/120});
 export const MIN_MEANINGFUL_AIRTIME = 1;
 export const TYPES = Object.freeze([
   {name:'compact',width:1.65,length:3.3,height:1.25,color:'#e6c179'},
@@ -40,13 +40,24 @@ export function encounterGapSeconds(time,kind='flow'){
   const intensity=intensityAt(time);
   if(kind==='peak')return .95-.3*intensity;
   if(kind==='optional')return .48+.06*(1-intensity);
-  if(kind==='recovery')return 2.5-.8*intensity;
+  if(kind==='recovery')return 1.7-.5*intensity;
   if(kind==='opening')return 2.9-.8*intensity;
   return 2.55-1.8*intensity;
 }
+function peakLength(r){
+  const roll=r();
+  if(roll<.08)return 4;
+  if(roll<.21)return 5;
+  if(roll<.36)return 6;
+  if(roll<.56)return 7;
+  if(roll<.76)return 8;
+  if(roll<.90)return 9;
+  return 10;
+}
 export function createGame(seed=Date.now()) {
   const chargeRandom=randomSeed((seed^0x9e3779b9)>>>0);
-  return {time:0,distance:0,speed:27,pressure:1,charge:1,x:0,vx:0,lane:0,y:0,vy:0,roll:0,rollV:0,pitch:0,grounded:true,preload:0,thrusting:false,impact:0,instability:0,traffic:[],chargeArcs:[],orbPops:[],events:[],dead:false,reason:null,spawnIn:1.4,waves:0,lastWall:-100,random:randomSeed(seed),chargeRandom,nextChargeArcAt:firstArcAt(chargeRandom),nextChargeArcId:0,orbChain:null,lowChargeWarned:false,jumpPasses:0,airTime:0,lastSafeLane:0,lastWasWall:false,peakRows:0,lastPeak:-100,recoveryDue:false,optionalRows:0,optionalId:0,lastOptional:-100};
+  const bonusRandom=randomSeed((seed^0x85ebca6b)>>>0);
+  return {time:0,distance:0,speed:27,pressure:1,charge:1,x:0,vx:0,lane:0,y:0,vy:0,roll:0,rollV:0,pitch:0,grounded:true,preload:0,thrusting:false,impact:0,instability:0,traffic:[],chargeArcs:[],bonusOrbs:[],orbPops:[],events:[],dead:false,reason:null,spawnIn:1.4,waves:0,lastWall:-100,random:randomSeed(seed),chargeRandom,nextChargeArcAt:firstArcAt(chargeRandom),nextChargeArcId:0,bonusRandom,nextBonusOrbAt:nextBonusDelay(bonusRandom),orbChain:null,lowChargeWarned:false,jumpPasses:0,airTime:0,lastSafeLane:0,lastWasWall:false,peakRows:0,lastPeak:-100,recoveryDue:false,optionalRows:0,optionalId:0,lastOptional:-100};
 }
 export function moveLane(g,dir){
   if(g.dead)return;
@@ -82,14 +93,15 @@ export function spawnWave(g){
     g.optionalLaneSpeeds=laneSpeeds;
   }
   if(g.peakRows===0&&g.optionalRows===0&&!g.recoveryDue&&g.time>28&&g.time-g.lastPeak>28&&r()<.14+intensity*.12){
-    g.peakRows=7+Math.floor(r()*3);
+    g.peakRows=peakLength(r);
     g.lastPeak=g.time;
   }
   const peak=g.peakRows>0,optional=g.optionalRows>0,recovery=g.recoveryDue;
   const kind=peak?'peak':optional?'optional':recovery?'recovery':'flow';
   const wall=peak&&g.peakRows===1&&g.time-g.lastWall>22&&r()<.55;
+  const lighterPeakRow=peak&&g.peakRows>1&&!wall&&r()<.13;
   const maxType=g.time<18?3:g.distance<900?4:6;
-  const count=wall?3:peak||optional?2:recovery||g.time<6?1:(r()<.38+intensity*.5?2:1);
+  const count=wall?3:peak?(lighterPeakRow?1:2):optional?2:recovery||g.time<6?1:(r()<.38+intensity*.5?2:1);
   const lanes=wall?[-1,0,1]:[];
   let safeLane=g.lastSafeLane;
   if(count===2){
@@ -181,11 +193,11 @@ export function step(g,input,dt=CONFIG.step){
   const wasGrounded=g.grounded;
   g.thrusting=!!input.thrust&&g.pressure>.0001;
   if(g.thrusting){
-    if(g.grounded){g.preload+=dt;if(g.preload>=.11){g.grounded=false;g.airTime=0;g.events.push({type:'launch'});}}
+    if(g.grounded){g.preload+=dt;if(g.preload>=.11){g.grounded=false;g.vy=CONFIG.launchBoost;g.airTime=0;g.events.push({type:'launch'});}}
     g.pressure=Math.max(0,g.pressure-CONFIG.drain*dt);
   }else {g.preload=0;if(g.grounded){const old=g.pressure;g.pressure=Math.min(1,g.pressure+CONFIG.recharge*dt);if(old<1&&g.pressure===1)g.events.push({type:'charged'});}}
   const error=g.lane*CONFIG.lane-g.x;
-  const stiffness=g.grounded?75:19, damping=g.grounded?17:7.2;
+  const stiffness=g.grounded?CONFIG.groundSteeringStiffness:CONFIG.airSteeringStiffness, damping=g.grounded?17:7.2;
   g.vx+= (error*stiffness-g.vx*damping)*dt;
   g.vx=clamp(g.vx,g.grounded?-12:-7.2,g.grounded?12:7.2);
   g.x+=g.vx*dt;
