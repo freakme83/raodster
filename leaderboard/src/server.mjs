@@ -1,17 +1,18 @@
-import { createServer } from 'node:http';
+import { readConfig } from './config.mjs';
+import { createLeaderboardServer } from './http.mjs';
+import { openStore } from './store.mjs';
 
-const port = Number(process.env.PORT ?? 8080);
-const host = process.env.HOST ?? '0.0.0.0';
+const config = readConfig();
+const store = openStore(config);
+const server = createLeaderboardServer({ store, config });
 
-const server = createServer((request, response) => {
-  if (request.method === 'GET' && request.url === '/health') {
-    response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
-    response.end('{"ok":true}');
-    return;
-  }
-
-  response.writeHead(404, { 'content-type': 'application/json; charset=utf-8' });
-  response.end('{"error":"not_found"}');
+server.listen(config.port, config.host, () => {
+  console.log(`AIRSHIFT leaderboard listening on ${config.host}:${config.port}`);
 });
 
-server.listen(port, host);
+function shutdown() {
+  server.close(() => store.close());
+}
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
