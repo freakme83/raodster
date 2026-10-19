@@ -17,8 +17,6 @@ export class Renderer {
     this.poly([{x:0,y:hy-18},{x:w*.08,y:hy-28},{x:w*.17,y:hy-66},{x:w*.25,y:hy-49},{x:w*.33,y:hy-17},{x:w*.42,y:hy-37},{x:w*.53,y:hy-32},{x:w*.64,y:hy-58},{x:w*.73,y:hy-43},{x:w*.82,y:hy-69},{x:w,y:hy-20},{x:w,y:hy+70},{x:0,y:hy+70}],'#b8a2ad');
     this.poly([{x:0,y:hy+7},{x:w*.15,y:hy-15},{x:w*.27,y:hy+12},{x:w*.4,y:hy-9},{x:w*.55,y:hy+14},{x:w*.69,y:hy-14},{x:w*.81,y:hy+9},{x:w,y:hy-9},{x:w,y:h},{x:0,y:h}],'#a9b2a2');
     c.fillStyle='#9aaa98';c.fillRect(0,hy+38,w,h);
-    // Sparse distant architecture; never competes with traffic silhouettes.
-    c.fillStyle='#aca6ad';for(let i=0;i<12;i++){const x=w*(.36+i*.018),height=4+(i*19%17);c.fillRect(x,hy-height,w*.009,height+8);}
   }
   ground(g){
     const dist=g.distance;
@@ -161,7 +159,7 @@ export class Renderer {
       const z=330-i*20-g.distance%20;if(z<-6)continue;const worldIndex=Math.floor(g.distance/20)-i;
       for(const side of [-1,1]){
         const x=side*6.6;this.box(x,0,z,.11,.85,.12,'#ded9c0',faces);this.box(x,.59,z,.15,.16,.14,'#f9dcad',faces);
-        if(worldIndex%5===0){this.box(side*9.1,0,z,.14,7,.14,'#68777b',faces);this.box(side*8.1,6.9,z,2.1,.12,.18,'#68777b',faces);this.box(side*7.25,6.8,z,.6,.08,.32,'#ffedca',faces);}
+        if(worldIndex%7===0){this.box(side*9.6,0,z,.07,3.8,.08,'#68777b',faces);this.box(side*9.1,3.72,z,1.1,.07,.1,'#68777b',faces);this.box(side*8.65,3.68,z,.32,.05,.16,'#ffedca',faces);}
         if(worldIndex%3===0){const t=side*(11+((worldIndex%4+4)%4)*3);this.box(t,0,z,.25,1.2,.3,'#8f9381',faces);this.box(t,.7,z,1.5,.8,1.5,'#8eaa94',faces);this.box(t,1.2,z,1,.6,1,'#a3b69b',faces);}
       }
     }
