@@ -52,6 +52,29 @@ test('orb art keeps a compact dim halo and a matte core at preview distance',()=
   assert.ok(width>=6,'the silhouette remains visible at mobile preview size');
 });
 
+test('distant scenery avoids horizon blocks and keeps roadside frames sparse and low',()=>{
+  const r=renderer(),g=createGame(3),boxes=[];
+  r.box=(x,y,z,w,h,l,color)=>boxes.push({x,y,z,w,h,l,color});
+  r.scenery(g,[]);
+  const frames=boxes.filter(box=>box.color==='#68777b');
+  assert.equal(frames.length,12,'three frame locations across the visible 19-step scenery span');
+  assert.ok(frames.every(box=>box.h<=3.8&&box.w<=1.1),'frames stay shorter and thinner than the old gate-like structures');
+  assert.ok(boxes.some(box=>box.color==='#ded9c0'),'roadside markers remain');
+  assert.ok(boxes.some(box=>box.color==='#8eaa94'),'trees remain as depth cues');
+});
+
+test('background draws no decorative horizon rectangles',()=>{
+  const fillRects=[];
+  const gradient={addColorStop(){}};
+  const ctx={
+    beginPath(){},moveTo(){},lineTo(){},closePath(){},fill(){},arc(){},
+    createLinearGradient(){return gradient;},createRadialGradient(){return gradient;},
+    fillRect(...rect){fillRects.push(rect);}
+  };
+  const r=new Renderer({getContext:()=>ctx});r.horizon=244;r.background();
+  assert.equal(fillRects.length,3,'only the sky, sun glow, and ground rectangles are drawn');
+});
+
 test('power depletion keeps the car upright and intact with synchronized amber rear hazards',()=>{
   const r=renderer(),g=createGame(3),faces=[],lights=[];
   r.playerShadow=()=>{};
