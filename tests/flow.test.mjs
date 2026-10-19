@@ -129,6 +129,10 @@ test('touch, cancel, pause, crash, persistence, and retry work together',async()
   assert.equal(el('charge-meter').classes.has('pickup'),true,'a pickup pulses the meter immediately');
   assert.ok(Number(el('charge-meter').attrs['aria-valuenow'])>50);
   frames(20);assert.equal(el('charge-meter').classes.has('pickup'),false,'pickup pulse is brief');
+  game.events.push({type:'orb',bonus:true,chain:1});frames(1);
+  assert.equal(el('feedback').textContent,'CHARGE +50%','a successful green pickup clearly reports its reward');
+  assert.equal(el('charge-meter').classes.has('bonus-pickup'),true,'green pickup has a distinct meter pulse');
+  frames(24);assert.equal(el('charge-meter').classes.has('bonus-pickup'),false,'green meter treatment is brief');
   game.spawnIn=Infinity;game.nextChargeArcAt=Infinity;game.charge=.001;
   frames(10);assert.equal(el('crash-reason').textContent,'OUT OF CHARGE');
   assert.equal(el('charge-meter').attrs['aria-valuenow'],0);

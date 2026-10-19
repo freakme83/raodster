@@ -146,8 +146,14 @@ export class Renderer {
   }
   chargePop(pop){
     const p=this.point(pop.x,pop.y,pop.z);if(!p)return;
-    const t=Math.min(1,pop.age/CHARGE.popDuration),size=Math.min(14,Math.max(4,p.s*.65))*(1-t*.72);
+    const duration=pop.bonus?CHARGE.bonusPopDuration:CHARGE.popDuration;
+    const t=Math.min(1,pop.age/duration),size=Math.min(pop.bonus?20:14,Math.max(4,p.s*(pop.bonus?1.05:.65)))*(1-t*.72);
     const tint=pop.bonus?'76,196,132':'244,209,147';
+    if(pop.bonus){
+      const c=this.c,r=size*(1.15+t*1.5);
+      c.strokeStyle=`rgba(${tint},${.5*(1-t)})`;c.lineWidth=Math.max(1.2,size*.11);
+      c.beginPath();c.arc(p.x,p.y,r,0,Math.PI*2);c.stroke();
+    }
     this.poly([{x:p.x,y:p.y-size},{x:p.x+size*.65,y:p.y},{x:p.x,y:p.y+size},{x:p.x-size*.65,y:p.y}],`rgba(${tint},${.8*(1-t)})`);
   }
   scenery(g,faces){

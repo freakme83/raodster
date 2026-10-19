@@ -9,9 +9,12 @@ export const CHARGE = Object.freeze({
   pickupCenterY:.62,
   pickupX:1.18,
   pickupY:1.08,
+  bonusPickupX:1.4,
+  bonusPickupY:1.25,
   pickupZ:3.15,
   minimumPickupAltitude:.45,
   popDuration:.22,
+  bonusPopDuration:.36,
   bonusMeanInterval:75,
   bonusHeight:5.5,
   bonusReward:.5
@@ -98,11 +101,11 @@ export function spawnChargeArc(g){
 
 // Sweep the orb against the car's visible body volume over this fixed step.
 // The relative segment also catches a fast pass that ends beyond the near face.
-function crossesCollector(g,orb,previous,dt){
+function crossesCollector(g,orb,previous,dt,bonus=false){
   if(g.grounded)return false;
   const start=[orb.x-previous.x,orb.y-previous.y-CHARGE.pickupCenterY,orb.z];
   const end=[orb.x-g.x,orb.y-g.y-CHARGE.pickupCenterY,orb.z-g.speed*dt];
-  const half=[CHARGE.pickupX,CHARGE.pickupY,CHARGE.pickupZ];
+  const half=[bonus?CHARGE.bonusPickupX:CHARGE.pickupX,bonus?CHARGE.bonusPickupY:CHARGE.pickupY,CHARGE.pickupZ];
   let entry=0,exit=1;
   for(let axis=0;axis<3;axis++){
     const delta=end[axis]-start[axis];
@@ -149,7 +152,7 @@ export function advanceCharge(g,dt,previous={x:g.x,y:g.y}){
     if(arc.collected===CHARGE.orbsPerArc&&!arc.completed){arc.completed=true;g.events.push({type:'fullArc',arcId:arc.id});}
   }
   for(const orb of g.bonusOrbs){
-    const touched=!orb.collected&&!orb.missed&&crossesCollector(g,orb,previous,dt);
+    const touched=!orb.collected&&!orb.missed&&crossesCollector(g,orb,previous,dt,true);
     orb.z-=g.speed*dt;
     if(orb.collected||orb.missed)continue;
     if(!touched){if(orb.z< -CHARGE.pickupZ)orb.missed=true;continue;}
@@ -160,7 +163,7 @@ export function advanceCharge(g,dt,previous={x:g.x,y:g.y}){
   g.bonusOrbs=g.bonusOrbs.filter(orb=>!orb.missed&&!orb.collected);
   g.chargeArcs=g.chargeArcs.filter(arc=>arc.orbs.at(-1).z>-25);
   for(const pop of g.orbPops){pop.z-=g.speed*dt;pop.age+=dt;}
-  g.orbPops=g.orbPops.filter(pop=>pop.age<CHARGE.popDuration);
+  g.orbPops=g.orbPops.filter(pop=>pop.age<(pop.bonus?CHARGE.bonusPopDuration:CHARGE.popDuration));
   if(g.charge>CHARGE.lowThreshold+.08)g.lowChargeWarned=false;
   if(g.charge>0&&g.charge<CHARGE.lowThreshold&&!g.lowChargeWarned){g.lowChargeWarned=true;g.events.push({type:'lowCharge'});}
   return g.charge===0;

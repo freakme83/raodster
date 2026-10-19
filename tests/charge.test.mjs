@@ -60,6 +60,25 @@ test('late-speed green orb remains collectable after realistic reaction and laun
   assert.equal(g.events.filter(e=>e.bonus).length,1);
 });
 
+test('green-only pickup tolerance is modestly wider while yellow hitboxes stay unchanged',()=>{
+  assert.equal(CHARGE.pickupX,1.18);assert.equal(CHARGE.pickupY,1.08);assert.equal(CHARGE.pickupZ,3.15);
+  assert.equal(CHARGE.bonusPickupX,1.4);assert.equal(CHARGE.bonusPickupY,1.25);assert.equal(CHARGE.pickupZ,3.15);
+  const pickup=(x,y)=>{
+    const g=isolated(451);g.grounded=false;
+    const orb={x:0,y:5.5,z:0,collected:false,missed:false};g.bonusOrbs=[orb];
+    g.x=-x;g.y=orb.y-CHARGE.pickupCenterY+y;
+    advanceCharge(g,0);
+    return {g,orb};
+  };
+  const inside=pickup(1.39,0);assert.equal(inside.orb.collected,true,'just-inside bonus radius collects');
+  assert.equal(inside.g.events.filter(e=>e.type==='orb'&&e.bonus).length,1);
+  assert.equal(inside.g.orbPops.filter(pop=>pop.bonus).length,1);
+  advanceCharge(inside.g,0);assert.equal(inside.g.events.filter(e=>e.type==='orb'&&e.bonus).length,1,'collection feedback event is emitted once');
+  const outside=pickup(1.41,0);assert.equal(outside.orb.collected,false,'just-outside bonus radius misses');
+  assert.equal(outside.g.events.filter(e=>e.type==='orb').length,0,'a pass without collection emits no feedback event');
+  const verticalOutside=pickup(0,1.26);assert.equal(verticalOutside.orb.collected,false);
+});
+
 test('bonus opportunities suppress against present or soon-visible yellow orbs without consuming yellow RNG',()=>{
   const g=isolated(46);g.time=30;g.speed=80;
   let rolls=0;g.bonusRandom=()=>{rolls++;return .75;};
@@ -499,4 +518,13 @@ test('low-charge audio warns once and successive pickups rise gently in pitch',(
   const audio=new AudioEngine(),tones=[];audio.tone=f=>tones.push(f);
   for(let chain=1;chain<=6;chain++)audio.event({type:'orb',chain});
   assert.ok(tones[0]<tones[2]&&tones[2]<tones[4]&&tones[8]<tones[10]);
+});
+
+test('bonus collection uses a distinct two-note sound once while normal orb sound is unchanged',()=>{
+  const audio=new AudioEngine(),tones=[];audio.tone=(...args)=>tones.push(args);
+  audio.event({type:'orb',chain:1});
+  assert.deepEqual(tones.map(t=>t[0]),[740,1480]);
+  tones.length=0;audio.event({type:'orb',chain:1,bonus:true});
+  assert.deepEqual(tones.map(t=>t[0]),[880,1175]);
+  assert.equal(tones.length,2,'one successful bonus event schedules one recognizable two-note sound');
 });
