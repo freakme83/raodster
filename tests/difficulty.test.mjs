@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createGame,step,moveLane,speedAt,closingSpeed,encounterGapSeconds,TRAFFIC_SPEED_RANGES,CONFIG,TYPES} from '../src/physics.js';
+import {createGame,step,moveLane,speedAt,closingSpeed,encounterGapSeconds,intensityAt,TRAFFIC_SPEED_RANGES,CONFIG,TYPES} from '../src/physics.js';
 
 // Run the actual fixed-step scheduler with a harmless high flight so every
 // seeded traffic choice can be inspected without building an AI driver.
@@ -53,7 +53,10 @@ test('ordinary, recovery, and peak gaps vary by time at the intended cadence',()
   assert.ok(encounterGapSeconds(35,'flow')>=1.3&&encounterGapSeconds(35,'flow')<1.7);
   assert.ok(encounterGapSeconds(90,'flow')<1);
   assert.ok(encounterGapSeconds(90,'peak')>=.6&&encounterGapSeconds(90,'peak')<=.7);
-  assert.ok(encounterGapSeconds(90,'recovery')>=1.6&&encounterGapSeconds(90,'recovery')<=1.8);
+  assert.equal(encounterGapSeconds(0,'recovery'),1.7-.5*intensityAt(0));
+  assert.ok(encounterGapSeconds(90,'recovery')>1.2&&encounterGapSeconds(90,'recovery')<1.3);
+  assert.ok(encounterGapSeconds(10000,'recovery')>1.19&&encounterGapSeconds(10000,'recovery')<1.21);
+  assert.equal(encounterGapSeconds(90,'recovery'),1.7-.5*intensityAt(90));
   assert.ok(encounterGapSeconds(90,'flow')<encounterGapSeconds(20,'flow'));
 });
 
@@ -96,15 +99,40 @@ test('density pressure is irregular, deterministic, and no longer a fixed phase 
   assert.ok(peaks.length>=3,`only ${peaks.length} peak sequences`);
   const complete=peaks.filter(rows=>rows.at(-1).time<200);
   assert.ok(complete.length>=3);
-  assert.ok(complete.every(rows=>rows.length>=7&&rows.length<=9));
-  assert.ok(complete.every(rows=>rows.at(-1).time-rows[0].time>=3.7&&rows.at(-1).time-rows[0].time<=(rows.at(-1).wall?11:8.5)));
+  assert.ok(complete.every(rows=>rows.length>=4&&rows.length<=10));
+  assert.ok(complete.every(rows=>rows.at(-1).time-rows[0].time>=(rows.length-1)*.35&&rows.at(-1).time-rows[0].time<=(rows.at(-1).wall?11:9.5)));
   const starts=complete.map(rows=>rows[0].time);
   const intervals=starts.slice(1).map((time,i)=>time-starts[i]);
   assert.ok(new Set(intervals.map(x=>Math.round(x))).size>=2,`peak intervals too regular: ${intervals}`);
   const recovery=a.groups.filter(x=>x.kind==='recovery');
   assert.ok(recovery.length>=complete.length-1);
   assert.ok(recovery.every(x=>x.vehicles.length===1&&x.gapSeconds<2.5));
+  const recoveryGaps=recovery.filter(x=>!x.wall).map(x=>x.gapSeconds);
+  assert.ok(Math.max(...recoveryGaps)-Math.min(...recoveryGaps)>.2,'seeded recovery spacing should vary');
   assert.ok(a.groups.every(x=>x.kind!=='release'&&x.kind!=='cluster'&&x.kind!=='opening'));
+});
+
+test('peak lengths cover short, medium, and long sequences; lighter rows stay inside peaks',()=>{
+  let short=0,medium=0,long=0,eligibleRows=0,lighterRows=0;
+  for(let seed=0;seed<96;seed++){
+    const {groups}=observe(seed,190);
+    for(const seq of sequences(groups,'peak')){
+      if(seq.at(-1).time>=180)continue;
+      assert.ok(seq.length>=4&&seq.length<=10,`peak length ${seq.length} for seed ${seed}`);
+      if(seq.length<=5)short++;else if(seq.length<=8)medium++;else long++;
+      for(let i=0;i<seq.length;i++){
+        const row=seq[i];if(row.wall)continue;
+        eligibleRows++;
+        if(row.vehicles.length===1){lighterRows++;assert.ok(i<seq.length-1,'a lighter row cannot replace the peak-ending beat');}
+        else assert.equal(row.vehicles.length,2,'most non-wall peak rows remain dense');
+      }
+    }
+  }
+  const sequencesCount=short+medium+long,lightRate=lighterRows/eligibleRows;
+  assert.ok(short/sequencesCount>=.15,`short peak share ${(short/sequencesCount*100).toFixed(1)}%`);
+  assert.ok(medium/sequencesCount>=.45,`medium peak share ${(medium/sequencesCount*100).toFixed(1)}%`);
+  assert.ok(long/sequencesCount>=.12&&long<short+medium,`long peaks ${long}, others ${short+medium}`);
+  assert.ok(lightRate>=.10&&lightRate<=.18,`lighter-row rate ${(lightRate*100).toFixed(1)}%`);
 });
 
 test('late ordinary decisions stay close together and peak sequences tighten further',()=>{
@@ -126,7 +154,7 @@ test('late ordinary decisions stay close together and peak sequences tighten fur
 });
 
 test('160 seeded schedules keep routes connected, traffic readable, and jump walls protected',()=>{
-  let vehicles=0,walls=0,longTrucks=0,holds=0,left=0,right=0,wallPeaks=0;
+  let vehicles=0,walls=0,longTrucks=0,holds=0,left=0,right=0,wallPeaks=0,postWallRecovery=0;
   for(let seed=0;seed<160;seed++){
     const {groups}=observe(seed,190),again=observe(seed,190).groups;
     const signature=list=>list.map(x=>[x.kind,x.lanes,x.vehicles.map(v=>v.type),x.wall,Math.round(x.time*120)]);
@@ -155,6 +183,8 @@ test('160 seeded schedules keep routes connected, traffic readable, and jump wal
         if(groups[i+1]){
           assert.ok(groups[i+1].kind==='recovery',`wall lacks recovery row seed ${seed}`);
           assert.ok(groups[i+1].clearance>=2.4,`wall recovery too short seed ${seed}`);
+          assert.ok(groups[i+1].gapSeconds>=2.45,'post-wall minimum spacing remains enforced');
+          postWallRecovery++;
         }
         lastWall=x.time;
       }
@@ -167,7 +197,7 @@ test('160 seeded schedules keep routes connected, traffic readable, and jump wal
       }
     }
   }
-  assert.ok(walls>100&&wallPeaks===walls,{walls,wallPeaks});
+  assert.ok(walls>100&&wallPeaks===walls&&walls-postWallRecovery<=160,{walls,wallPeaks,postWallRecovery});
   assert.ok(vehicles>30000,`traffic count ${vehicles}`);
   assert.ok(longTrucks>100,`late vehicle mix lacks long trucks: ${longTrucks}`);
   assert.ok(holds>0&&left>0&&right>0,{holds,left,right});
