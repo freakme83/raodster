@@ -188,7 +188,7 @@ test('a simple six-orb arc can be cleared with the existing thrust and landing p
   const g=isolated(12);g.time=25;g.speed=60;g.distance=1000;g.chargeRandom=()=>.1;
   g.lane=-1;g.x=-3.4;g.charge=.5;spawnChargeArc(g);
   let launched=false,launchTime=0;
-  for(let i=0;i<500&&!g.dead;i++){
+  for(let i=0;i<600&&!g.dead;i++){
     if(!launched&&g.chargeArcs[0]?.orbs[0]?.z<40){launched=true;launchTime=g.time;}
     const elapsed=g.time-launchTime;
     const thrust=launched&&(elapsed<.75||(!g.grounded&&g.y<1.7&&g.vy< -6&&g.pressure>.2));
@@ -210,7 +210,7 @@ test('a high arc is reachable with the existing launch preload, thrust, gravity,
   for(let i=0;i<600&&!g.dead;i++){
     if(!launched&&g.chargeArcs[0]?.orbs[0]?.z<40){launched=true;launchTime=g.time;}
     const elapsed=g.time-launchTime;
-    const thrust=launched&&(elapsed<.825||(!g.grounded&&g.y<1.7&&g.vy< -6&&g.pressure>.2));
+    const thrust=launched&&(elapsed<.75||(!g.grounded&&g.y<1.7&&g.vy< -6&&g.pressure>.2));
     step(g,{thrust});
     if(launched&&g.grounded&&elapsed>1.2)break;
   }
@@ -226,7 +226,7 @@ test('high arc spacing permits the same physical climb near the speed ceiling',(
   for(let i=0;i<900&&!g.dead;i++){
     if(!launched&&g.chargeArcs[0]?.orbs[0]?.z<65){launched=true;launchTime=g.time;}
     const elapsed=g.time-launchTime;
-    step(g,{thrust:launched&&(elapsed<.85||(!g.grounded&&g.y<1.7&&g.vy<-6&&g.pressure>.2))});
+    step(g,{thrust:launched&&(elapsed<.75||(!g.grounded&&g.y<1.7&&g.vy<-6&&g.pressure>.2))});
     if(launched&&g.grounded&&elapsed>1.2)break;
   }
   assert.equal(g.dead,false);assert.equal(g.grounded,true);
@@ -235,7 +235,7 @@ test('high arc spacing permits the same physical climb near the speed ceiling',(
 });
 
 test('raised cross and greedy arcs remain fully collectable using unchanged flight physics',()=>{
-  for(const [shape,roll,startLane,steerAt,pulse] of [['cross',.45,-1,0,.8],['greedy',.8,0,-20,.9]])for(const seconds of [25,110]){
+  for(const [shape,roll,startLane,steerAt] of [['cross',.45,-1,0],['greedy',.8,0,-20]])for(const seconds of [25,110]){
     const g=isolated(77);g.time=seconds;g.speed=speedAt(seconds);g.distance=g.speed*seconds;
     g.nextChargeArcId=1;g.chargeRandom=(()=>{let i=0;return()=>[roll,.1][i++]??.1})();
     g.lane=startLane;g.x=startLane*CONFIG.lane;spawnChargeArc(g);
@@ -243,9 +243,10 @@ test('raised cross and greedy arcs remain fully collectable using unchanged flig
     let launched=false,launchTime=0,steered=false;
     for(let i=0;i<650&&!g.dead;i++){
       const z=arc.orbs[0].z;
-      if(!launched&&z<55){launched=true;launchTime=g.time;}
+      if(!launched&&z<(seconds<60?35:45)){launched=true;launchTime=g.time;}
       if(!steered&&z<steerAt){moveLane(g,1);steered=true;}
       const elapsed=g.time-launchTime;
+      const pulse=shape==='cross'?(seconds<60?.65:.6):(seconds<60?.75:.7);
       step(g,{thrust:launched&&(elapsed<pulse||(!g.grounded&&g.y<1.7&&g.vy< -6&&g.pressure>.2))});
       if(z<-120)break;
     }
@@ -266,11 +267,12 @@ test('far-cross can be fully flown in both directions at mid-run and near-ceilin
     let launched=false,launchTime=0,steers=0;
     for(let i=0;i<680&&!g.dead;i++){
       const z=arc.orbs[0].z;
-      if(!launched&&z<55){launched=true;launchTime=g.time;}
-      if(steers===0&&z<5){moveLane(g,direction);steers++;}
+      if(!launched&&z<(seconds<60?35:45)){launched=true;launchTime=g.time;}
+      if(steers===0&&z<-10){moveLane(g,direction);steers++;}
       if(steers===1&&z< -35){moveLane(g,direction);steers++;}
       const elapsed=g.time-launchTime;
-      step(g,{thrust:launched&&(elapsed<.8||(elapsed>1.55&&elapsed<2))});
+      const launchPulse=seconds<60?.7:.68;
+      step(g,{thrust:launched&&(elapsed<launchPulse||(elapsed>1.55&&elapsed<2))});
       if(z< -190)break;
     }
     assert.equal(g.dead,false,`far-cross from lane ${lane} at ${seconds}s remains survivable`);

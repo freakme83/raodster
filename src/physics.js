@@ -1,6 +1,6 @@
 // All units are metres / seconds. Rendering never changes simulation state.
 import {firstArcAt,advanceCharge} from './charge.js';
-export const CONFIG = Object.freeze({lane:3.4,roadHalf:5.25,halfWidth:.83,halfLength:1.85,gravity:11,thrust:25,drain:.43,recharge:.32,maxFall:11.5,maxAngle:25*Math.PI/180,step:1/120});
+export const CONFIG = Object.freeze({lane:3.4,roadHalf:5.25,halfWidth:.83,halfLength:1.85,gravity:11,thrust:25,launchBoost:1.5,groundSteeringStiffness:84,airSteeringStiffness:22.04,drain:.43,recharge:.32,maxFall:11.5,maxAngle:25*Math.PI/180,step:1/120});
 export const MIN_MEANINGFUL_AIRTIME = 1;
 export const TYPES = Object.freeze([
   {name:'compact',width:1.65,length:3.3,height:1.25,color:'#e6c179'},
@@ -181,11 +181,11 @@ export function step(g,input,dt=CONFIG.step){
   const wasGrounded=g.grounded;
   g.thrusting=!!input.thrust&&g.pressure>.0001;
   if(g.thrusting){
-    if(g.grounded){g.preload+=dt;if(g.preload>=.11){g.grounded=false;g.airTime=0;g.events.push({type:'launch'});}}
+    if(g.grounded){g.preload+=dt;if(g.preload>=.11){g.grounded=false;g.vy=CONFIG.launchBoost;g.airTime=0;g.events.push({type:'launch'});}}
     g.pressure=Math.max(0,g.pressure-CONFIG.drain*dt);
   }else {g.preload=0;if(g.grounded){const old=g.pressure;g.pressure=Math.min(1,g.pressure+CONFIG.recharge*dt);if(old<1&&g.pressure===1)g.events.push({type:'charged'});}}
   const error=g.lane*CONFIG.lane-g.x;
-  const stiffness=g.grounded?75:19, damping=g.grounded?17:7.2;
+  const stiffness=g.grounded?CONFIG.groundSteeringStiffness:CONFIG.airSteeringStiffness, damping=g.grounded?17:7.2;
   g.vx+= (error*stiffness-g.vx*damping)*dt;
   g.vx=clamp(g.vx,g.grounded?-12:-7.2,g.grounded?12:7.2);
   g.x+=g.vx*dt;
