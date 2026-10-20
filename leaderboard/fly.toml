@@ -2,7 +2,7 @@ app = "airshift-leaderboard-freakme83"
 primary_region = "fra"
 
 [build]
-  dockerfile = "leaderboard/Dockerfile"
+  dockerfile = "Dockerfile"
 
 [env]
   HOST = "0.0.0.0"
