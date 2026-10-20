@@ -2,8 +2,9 @@ import {createGame,step,moveLane,CONFIG,clamp} from './physics.js';
 import {CHARGE} from './charge.js';
 import {Renderer} from './renderer.js';
 import {AudioEngine} from './audio.js';
+import {previewRankings} from './leaderboard-preview.js';
 const $=id=>document.getElementById(id);
-const ui=Object.fromEntries(['hud','intro','result','pause','controls','pause-button','feedback','flight-hint','thrust-cue','distance','intro-best','final-distance','final-best','crash-reason','crash-tip','best-line','pressure-label','charge-meter','charge-fill','charge-label'].map(id=>[id,$(id)]));
+const ui=Object.fromEntries(['hud','intro','result','pause','controls','pause-button','feedback','flight-hint','thrust-cue','distance','intro-best','final-distance','final-best','crash-reason','crash-tip','best-line','pressure-label','charge-meter','charge-fill','charge-label','leaderboard-dialog','leaderboard-list','leaderboard-top20','leaderboard-top100','leaderboard-local-best'].map(id=>[id,$(id)]));
 const segments=[...document.querySelectorAll('.segments b')],meter=document.querySelector('.segments');
 const reducedMotion=matchMedia('(prefers-reduced-motion: reduce)').matches;
 let renderer;
@@ -14,6 +15,7 @@ const write=(key,value)=>{try{localStorage.setItem(key,value);}catch{}};
 let best=Number(read('airshift.best.v1','0'));if(!Number.isFinite(best)||best<0)best=0;
 audio.setEnabled(read('airshift.sound.v1','on')!=='off');
 let g=createGame(),mode='intro',accumulator=0,lastTime=0,crashAge=0,feedbackUntil=0,chargePulseUntil=0,runBest=best,shownFlightHint=false;
+let modalOpen=false;
 let thrustPointers=new Set(),keys=new Set(),swipes=new Map(),usedThrust=false;
 const SWIPE_THRESHOLD=26,SWIPE_DOMINANCE=1.2,SWIPE_REARM_PAUSE_MS=300,SWIPE_REARM_MOVEMENT=12;
 const format=m=>(m/1000).toFixed(2);
@@ -22,7 +24,31 @@ const resize=()=>{const box=$('game').getBoundingClientRect();renderer.resize(bo
 new ResizeObserver(resize).observe($('game'));resize();
 function clearInput(){thrustPointers.clear();keys.clear();swipes.clear();}
 function setMode(next){mode=next;ui.intro.hidden=next!=='intro';ui.result.hidden=next!=='result';ui.pause.hidden=next!=='paused';ui.hud.hidden=!['playing','crashing','paused'].includes(next);ui.controls.hidden=next!=='playing';ui['pause-button'].hidden=next!=='playing';if(next!=='playing'){clearInput();ui['flight-hint'].hidden=true;ui['thrust-cue'].hidden=true;ui.feedback.classList.remove('show');ui['charge-meter'].classList.remove('pickup');ui['charge-meter'].classList.remove('bonus-pickup');}accumulator=0;}
-function start(){clearInput();g=createGame();renderer.lift=0;crashAge=0;feedbackUntil=0;chargePulseUntil=0;shownFlightHint=false;usedThrust=false;runBest=best;setMode('playing');ui['charge-meter'].classList.remove('pickup');audio.start().catch(()=>{});$('start').blur();$('retry').blur();}
+function renderPreview(limit){
+  const rows=previewRankings(limit).map(({rank,initials,km})=>{
+    const row=document.createElement('li');
+    for(const [className,value] of [['rank',String(rank).padStart(2,'0')],['initials',initials],['km',`${km.toFixed(2)} KM`]]){
+      const cell=document.createElement('span');cell.className=className;cell.textContent=value;row.append(cell);
+    }
+    return row;
+  });
+  ui['leaderboard-list'].replaceChildren(...rows);ui['leaderboard-list'].scrollTop=0;
+  ui['leaderboard-top20'].setAttribute('aria-pressed',String(limit===20));
+  ui['leaderboard-top100'].setAttribute('aria-pressed',String(limit===100));
+}
+function openLeaderboard(){
+  if(mode!=='intro'||modalOpen)return;
+  modalOpen=true;clearInput();renderPreview(20);
+  ui['leaderboard-local-best'].textContent=`${format(best)} KM`;
+  ui['leaderboard-dialog'].hidden=false;ui.intro.inert=true;$('scene').inert=true;
+  $('leaderboard-close').focus({preventScroll:true});
+}
+function closeLeaderboard(){
+  if(!modalOpen)return;
+  modalOpen=false;ui['leaderboard-dialog'].hidden=true;ui.intro.inert=false;$('scene').inert=false;
+  $('leaderboard-open').focus({preventScroll:true});
+}
+function start(){if(modalOpen)return;clearInput();g=createGame();renderer.lift=0;crashAge=0;feedbackUntil=0;chargePulseUntil=0;shownFlightHint=false;usedThrust=false;runBest=best;setMode('playing');ui['charge-meter'].classList.remove('pickup');audio.start().catch(()=>{});$('start').blur();$('retry').blur();}
 function message(text,duration=1.4){ui.feedback.textContent=text;ui.feedback.classList.add('show');feedbackUntil=g.time+duration;}
 function pause(){if(mode!=='playing')return;setMode('paused');audio.update(g,false);$('sound').textContent=audio.enabled?'SOUND ON':'SOUND OFF';}
 function resume(){if(mode!=='paused')return;clearInput();setMode('playing');lastTime=performance.now();audio.start().catch(()=>{});}
@@ -30,13 +56,18 @@ function end(){setMode('crashing');crashAge=0;best=Math.max(best,g.distance);wri
 function events(){for(const e of g.events){audio.event(e);if(e.type==='orb'){chargePulseUntil=g.time+(e.bonus?CHARGE.bonusPopDuration:CHARGE.popDuration);ui['charge-meter'].classList.remove('pickup');ui['charge-meter'].classList.remove('bonus-pickup');void ui['charge-meter'].offsetWidth;ui['charge-meter'].classList.add('pickup');if(e.bonus){ui['charge-meter'].classList.add('bonus-pickup');message('CHARGE +50%',1.1);}}if(e.type==='landing'){if(e.quality==='perfect')message(e.passed>1?`PERFECT · ${e.passed} CAR JUMP`:'PERFECT LANDING');else if(e.quality==='rough')message('ROUGH LANDING');else if(e.meaningfulJump&&e.passed)message(`${e.passed} CAR JUMP`);else if(e.meaningfulJump)message('CLEAN LANDING');if(!reducedMotion&&navigator.vibrate)navigator.vibrate(e.quality==='rough'?24:10);}if(e.type==='fullArc')message('FULL ARC',1.2);if(e.type==='close')message('CLOSE CALL',.8);if(e.type==='crash')end();}g.events.length=0;}
 function steer(dir){if(mode==='playing')moveLane(g,dir);}
 $('start').addEventListener('click',start);$('retry').addEventListener('click',start);$('resume').addEventListener('click',resume);$('pause-button').addEventListener('click',pause);
-ui.intro.addEventListener('click',e=>{if(!e.target.closest('button'))start();});
-ui.result.addEventListener('click',e=>{if(!e.target.closest('button'))start();});
+$('leaderboard-open').addEventListener('click',openLeaderboard);
+$('leaderboard-close').addEventListener('click',closeLeaderboard);
+ui['leaderboard-top20'].addEventListener('click',()=>renderPreview(20));
+ui['leaderboard-top100'].addEventListener('click',()=>renderPreview(100));
+ui['leaderboard-dialog'].addEventListener('click',e=>{if(e.target===ui['leaderboard-dialog'])closeLeaderboard();});
+ui.intro.addEventListener('click',e=>{if(!modalOpen&&!e.target.closest('button'))start();});
+ui.result.addEventListener('click',e=>{if(!modalOpen&&!e.target.closest('button'))start();});
 $('sound').addEventListener('click',()=>{audio.setEnabled(!audio.enabled);write('airshift.sound.v1',audio.enabled?'on':'off');$('sound').textContent=audio.enabled?'SOUND ON':'SOUND OFF';});
 for(const [id,dir] of [['left',-1],['right',1]]){$(id).addEventListener('pointerdown',e=>{e.preventDefault();steer(dir);});$(id).addEventListener('click',e=>{if(e.detail===0)steer(dir);});}
 const release=e=>{thrustPointers.delete(e.pointerId);swipes.delete(e.pointerId);};
 // Each canvas touch can hold thrust and steer independently; buttons and overlays never enter this path.
-$('scene').addEventListener('pointerdown',e=>{if(mode==='intro'){start();return;}if(mode==='result'){start();return;}if(mode!=='playing')return;swipes.set(e.pointerId,{anchorX:e.clientX,anchorY:e.clientY,lastX:e.clientX,lastY:e.clientY,lastMoveAt:e.timeStamp,direction:0});if(e.pointerType==='touch')thrustPointers.add(e.pointerId);$('scene').setPointerCapture(e.pointerId);});
+$('scene').addEventListener('pointerdown',e=>{if(modalOpen)return;if(mode==='intro'){start();return;}if(mode==='result'){start();return;}if(mode!=='playing')return;swipes.set(e.pointerId,{anchorX:e.clientX,anchorY:e.clientY,lastX:e.clientX,lastY:e.clientY,lastMoveAt:e.timeStamp,direction:0});if(e.pointerType==='touch')thrustPointers.add(e.pointerId);$('scene').setPointerCapture(e.pointerId);});
 $('scene').addEventListener('pointermove',e=>{
   const swipe=swipes.get(e.pointerId);if(!swipe)return;
   const x=e.clientX,y=e.clientY,moveX=x-swipe.lastX,moveY=y-swipe.lastY,now=Number.isFinite(e.timeStamp)?e.timeStamp:performance.now();
@@ -59,6 +90,18 @@ $('scene').addEventListener('pointerup',release);
 for(const name of ['pointercancel','lostpointercapture'])$('scene').addEventListener(name,release);
 window.addEventListener('pointerup',release);window.addEventListener('pointercancel',release);
 window.addEventListener('keydown',e=>{
+  if(modalOpen){
+    if(e.code==='Escape'){e.preventDefault();closeLeaderboard();return;}
+    if(e.code==='Tab'){
+      const focusable=[$('leaderboard-close'),ui['leaderboard-top20'],ui['leaderboard-top100'],ui['leaderboard-list']];
+      const at=focusable.indexOf(document.activeElement);
+      if(at<0||e.shiftKey&&at===0||!e.shiftKey&&at===focusable.length-1){e.preventDefault();focusable[e.shiftKey?focusable.length-1:0].focus({preventScroll:true});}
+      return;
+    }
+    const gameplayKeys=['ArrowLeft','ArrowRight','ArrowUp','Space','KeyA','KeyD','KeyW','KeyP','Enter'];
+    if(gameplayKeys.includes(e.code)&&!(document.activeElement?.tagName==='BUTTON'&&['Space','Enter'].includes(e.code))&&!(document.activeElement===ui['leaderboard-list']&&e.code==='ArrowUp'))e.preventDefault();
+    return;
+  }
   const handled=['ArrowLeft','ArrowRight','ArrowUp','Space','KeyA','KeyD','KeyW','Escape','KeyP','Enter'];if(!handled.includes(e.code))return;
   // Focused buttons retain their ordinary keyboard activation outside a run.
   if(mode!=='playing'&&document.activeElement?.tagName==='BUTTON'&&['Space','Enter'].includes(e.code))return;

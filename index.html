@@ -28,6 +28,15 @@
       <div class="brand"><h1>AIR<span>SHIFT</span><sup>↗</sup></h1><div class="record">BEST <span id="intro-best">0.00</span> KM</div></div>
       <div class="start-group"><button id="start" class="primary">TAP TO DRIVE <span>↗</span></button><button id="leaderboard-open" class="leaderboard-trigger" aria-label="Open leaderboard">LEADERBOARD</button></div>
     </section>
+    <section id="leaderboard-dialog" class="leaderboard-overlay" role="dialog" aria-modal="true" aria-labelledby="leaderboard-title" aria-describedby="leaderboard-preview" hidden>
+      <div class="leaderboard-panel">
+        <div class="leaderboard-heading"><div><span id="leaderboard-preview" class="leaderboard-preview">PREVIEW / SAMPLE DATA</span><h2 id="leaderboard-title">LEADERBOARD</h2></div><button id="leaderboard-close" class="leaderboard-close" aria-label="Close leaderboard">×</button></div>
+        <div class="leaderboard-tabs" role="group" aria-label="Ranking range"><button id="leaderboard-top20" aria-pressed="true">TOP 20</button><button id="leaderboard-top100" aria-pressed="false">TOP 100</button></div>
+        <div class="leaderboard-columns" aria-hidden="true"><span>RANK</span><span>INITIALS</span><span>DISTANCE</span></div>
+        <ol id="leaderboard-list" class="leaderboard-list" aria-label="Sample rankings" tabindex="0"></ol>
+        <div class="leaderboard-personal"><span>LOCAL BEST <strong id="leaderboard-local-best">0.00 KM</strong></span><span>GLOBAL RANK <strong>—</strong></span></div>
+      </div>
+    </section>
     <section id="result" class="overlay result" hidden>
       <div class="result-card"><span id="crash-reason" class="eyebrow">RUN COMPLETE</span><h2>ONE MORE<br><em>RUN.</em></h2><div class="result-score"><span id="final-distance">0.00</span><small> KM</small></div><div class="record" id="best-line">BEST <span id="final-best">0.00</span> KM</div><p id="crash-tip">Save some pressure to soften your landing.</p><button id="retry" class="primary">TAP TO RETRY <span>↻</span></button></div>
     </section>
