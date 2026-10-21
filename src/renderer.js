@@ -51,7 +51,8 @@ export class Renderer {
     if(player&&g.dead&&!powerLoss){roll+=Math.sign(g.roll||1)*this.crashPose*.7;pitch+=this.crashPose*.2;}
     const squash=player&&!powerLoss?g.impact*.16+g.preload*.6:0;
     const transform=(x,y,z)=>{
-      const yy=y-squash,ry=yy*Math.cos(roll)+x*Math.sin(roll),rx=x*Math.cos(roll)-yy*Math.sin(roll);      return[v.x+rx,(player?g.y:0)+ry*Math.cos(pitch)-z*Math.sin(pitch),v.z+z*Math.cos(pitch)+ry*Math.sin(pitch)];
+      const yy=y-squash,ry=yy*Math.cos(roll)+x*Math.sin(roll),rx=x*Math.cos(roll)-yy*Math.sin(roll);
+      return[v.x+rx,(player?g.y:0)+ry*Math.cos(pitch)-z*Math.sin(pitch),v.z+z*Math.cos(pitch)+ry*Math.sin(pitch)];
     };
     if(player)this.playerShadow(v,g);
     else {const ground=this.point(v.x,.08,v.z);if(ground){const c=this.c;c.fillStyle='#25263336';c.beginPath();c.ellipse(ground.x,ground.y,w*.72*ground.s,l*.22*ground.s,0,0,Math.PI*2);c.fill();}}
@@ -105,7 +106,8 @@ export class Renderer {
     const sideways=Math.abs(g.vx),correction=Math.abs(g.roll)>.025?Math.abs(g.rollV):0;
     if(sideways<.4&&correction<.14)return;
     const direction=sideways>.4?Math.sign(g.vx):-Math.sign(g.rollV);
-    if(!direction)return;    const side=-direction, strength=clamp(Math.max(sideways/7.2,correction/2.5),.2,1);
+    if(!direction)return;
+    const side=-direction, strength=clamp(Math.max(sideways/7.2,correction/2.5),.2,1);
     const pulse=.88+.12*Math.sin(g.time*36),reach=(.32+strength*.5)*pulse;
     const origin=transform(side*1.02,.48,-1.02),tip=transform(side*(1.02+reach),.47,-1.08);
     const a=this.point(...origin),b=this.point(...tip);if(!a||!b)return;
@@ -159,7 +161,8 @@ export class Renderer {
         if(worldIndex%7===0){this.box(side*9.6,0,z,.07,3.8,.08,'#68777b',faces);this.box(side*9.1,3.72,z,1.1,.07,.1,'#68777b',faces);this.box(side*8.65,3.68,z,.32,.05,.16,'#ffedca',faces);}
         if(worldIndex%3===0){const t=side*(11+((worldIndex%4+4)%4)*3);this.box(t,0,z,.25,1.2,.3,'#8f9381',faces);this.box(t,.7,z,1.5,.8,1.5,'#8eaa94',faces);this.box(t,1.2,z,1,.6,1,'#a3b69b',faces);}
       }
-    }    // Direction markers for all-lane blocks live beside the obstacle, not on the HUD.
+    }
+    // Direction markers for all-lane blocks live beside the obstacle, not on the HUD.
     const walls=g.traffic.filter(v=>v.wall&&v.lane===1&&v.z>2&&v.z<200);
     for(const v of walls){this.box(6.4,0,v.z+7,.12,3,.12,'#777a79',faces);this.box(6.4,2.4,v.z+7,1.7,.9,.13,'#edd6a0',faces);}
   }
