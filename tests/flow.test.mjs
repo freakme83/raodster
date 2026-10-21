@@ -6,29 +6,60 @@ import {readFile} from 'node:fs/promises';
 import {Renderer} from '../src/renderer.js';
 import {CHARGE,spawnChargeArc} from '../src/charge.js';
 class Element {
-  constructor(id=''){this.id=id;this.hidden=false;this.style={};this.textContent='';this.events={};this.attrs={};this.classes=new Set();this.classList={add:x=>this.classes.add(x),remove:x=>this.classes.delete(x),toggle:(x,v)=>v?this.classes.add(x):this.classes.delete(x)};}
+  constructor(id='',tagName='DIV'){this.id=id;this.tagName=tagName;this.hidden=false;this.style={};this.textContent='';this.events={};this.attrs={};this.classes=new Set();this.children=[];this.classList={add:x=>this.classes.add(x),remove:x=>this.classes.delete(x),toggle:(x,v)=>v?this.classes.add(x):this.classes.delete(x)};}
   addEventListener(type,fn){(this.events[type]??=[]).push(fn);}
-  fire(type,data={}){for(const fn of this.events[type]??[])fn({preventDefault(){},target:this,...data});}
+  fire(type,data={}){const event={defaultPrevented:false,preventDefault(){this.defaultPrevented=true;},target:this,...data};for(const fn of this.events[type]??[])fn(event);return event;}
   setAttribute(k,v){this.attrs[k]=v;}
   getBoundingClientRect(){return{width:390,height:844,left:0};}
   setPointerCapture(){}
-  blur(){}
+  focus(){document.activeElement=this;}
+  blur(){if(document.activeElement===this)document.activeElement=null;}
+  append(...children){this.children.push(...children);}
+  replaceChildren(...children){this.children=children;}
   closest(){return null;}
   querySelector(){return this.child??=new Element();}
 }
 test('touch, cancel, pause, crash, persistence, and retry work together',async()=>{
-  const elements=new Map();const el=id=>{if(!elements.has(id))elements.set(id,new Element(id));return elements.get(id);};
+  const elements=new Map();const buttonIds=new Set(['start','retry','resume','sound','left','right','pause-button','leaderboard-open','leaderboard-close','leaderboard-top20','leaderboard-top100']);
+  const el=id=>{if(!elements.has(id))elements.set(id,new Element(id,buttonIds.has(id)?'BUTTON':id==='leaderboard-list'?'OL':'DIV'));return elements.get(id);};
   const context=new Proxy({createLinearGradient:()=>({addColorStop(){}}),createRadialGradient:()=>({addColorStop(){}})},{get:(o,k)=>o[k]??(()=>{})});
   el('scene').getContext=()=>context;
+  el('leaderboard-dialog').hidden=true;
   const segments=[new Element(),new Element(),new Element()];
-  globalThis.document=Object.assign(new Element(),{getElementById:el,querySelector:el,querySelectorAll:()=>segments,activeElement:null,hidden:false});
+  globalThis.document=Object.assign(new Element(),{getElementById:el,createElement:tag=>new Element('',tag.toUpperCase()),querySelector:el,querySelectorAll:()=>segments,activeElement:null,hidden:false});
   globalThis.window=new Element();globalThis.matchMedia=()=>({matches:true});globalThis.devicePixelRatio=1;
   globalThis.ResizeObserver=class{constructor(fn){this.fn=fn;}observe(){this.fn();}};
-  const saved=new Map();globalThis.localStorage={getItem:k=>saved.get(k),setItem:(k,v)=>saved.set(k,v)};
+  const saved=new Map([['airshift.best.v1','456']]);globalThis.localStorage={getItem:k=>saved.get(k),setItem:(k,v)=>saved.set(k,v)};
   let nextFrame,now=performance.now();globalThis.requestAnimationFrame=fn=>{nextFrame=fn;};
   const frames=n=>{for(let i=0;i<n;i++){now+=1000/60;nextFrame(now);}};
   let game;const render=Renderer.prototype.render;Renderer.prototype.render=function(g,...args){game=g;return render.call(this,g,...args);};
   await import('../src/main.js');
+  assert.equal(el('intro-best').textContent,'0.46','the opening screen keeps the stored local best');
+  el('leaderboard-open').fire('click');
+  assert.equal(el('leaderboard-dialog').hidden,false);assert.equal(el('intro').inert,true);
+  assert.equal(document.activeElement,el('leaderboard-close'));
+  assert.equal(el('leaderboard-local-best').textContent,'0.46 KM');
+  assert.equal(el('leaderboard-list').children.length,20);
+  assert.equal(el('leaderboard-top20').attrs['aria-pressed'],'true');
+  el('leaderboard-top100').focus();window.fire('keydown',{code:'Enter',repeat:false});el('leaderboard-top100').fire('click');
+  assert.equal(el('leaderboard-list').children.length,25,'TOP 100 shows all available sample rows');
+  assert.equal(el('leaderboard-top100').attrs['aria-pressed'],'true');
+  el('leaderboard-list').scrollTop=40;el('leaderboard-top20').fire('click');
+  assert.equal(el('leaderboard-list').children.length,20);assert.equal(el('leaderboard-list').scrollTop,0);
+  el('leaderboard-list').children[0].fire('click');el('leaderboard-dialog').fire('click',{target:el('leaderboard-list')});
+  el('intro').fire('click',{target:el('leaderboard-list')});el('start').fire('click');
+  el('scene').fire('pointerdown',{pointerId:88,pointerType:'touch'});
+  for(const code of ['Space','Enter','ArrowLeft','KeyW','KeyP'])window.fire('keydown',{code,repeat:false});
+  frames(1);assert.equal(el('intro').hidden,false,'modal interactions cannot start a run');
+  el('leaderboard-close').focus();window.fire('keydown',{code:'Tab',shiftKey:true});
+  assert.equal(document.activeElement,el('leaderboard-list'),'Shift-Tab wraps within the modal');
+  window.fire('keydown',{code:'Tab',shiftKey:false});assert.equal(document.activeElement,el('leaderboard-close'));
+  window.fire('keydown',{code:'Escape'});assert.equal(el('leaderboard-dialog').hidden,true);
+  assert.equal(el('intro').inert,false);assert.equal(document.activeElement,el('leaderboard-open'));
+  el('leaderboard-open').fire('click');el('leaderboard-dialog').fire('click',{target:el('leaderboard-dialog')});
+  assert.equal(el('leaderboard-dialog').hidden,true,'backdrop closes without starting a run');
+  el('leaderboard-open').fire('click');el('leaderboard-close').fire('click');
+  assert.equal(el('intro').hidden,false,'close button cannot start a run');
   el('intro').fire('pointerdown',{pointerId:10,pointerType:'touch'});frames(1);assert.equal(game.thrusting,false);
   el('start').fire('click');frames(1);assert.equal(el('intro').hidden,true);assert.equal(el('controls').hidden,false);
   assert.equal(el('charge-meter').attrs['aria-valuenow'],100);
@@ -144,4 +175,7 @@ test('touch, cancel, pause, crash, persistence, and retry work together',async()
   const html=await readFile(new URL('../index.html',import.meta.url),'utf8');
   assert.doesNotMatch(html,/id="thrust"/);assert.match(html,/id="thrust-cue"/);
   assert.match(html,/<div id="controls"[^>]*>\s*<button id="left"[\s\S]*<button id="right"/);
+  assert.doesNotMatch(html,/COLD GAS\. OPEN ROAD\.|DODGE\. LIFT\. LAND\.|01 \/ SUNSET FREEWAY|AN ENDLESS ARCADE EXPERIMENT|class="intro-guide"|class="keyboard-note"/);
+  assert.match(html,/id="leaderboard-dialog"[^>]*role="dialog"[^>]*aria-modal="true"/);
+  assert.match(html,/PREVIEW \/ SAMPLE DATA/);
 });
