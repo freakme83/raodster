@@ -23,12 +23,10 @@ export class Renderer {
     this.world([[-7.8,0,-8],[-7.8,0,450],[7.8,0,450],[7.8,0,-8]],'#c8bba1');
     this.world([[-5.7,.01,-8],[-5.7,.01,450],[5.7,.01,450],[5.7,.01,-8]],'#66616b');
     this.world([[-5.25,.025,-8],[-5.25,.025,450],[5.25,.025,450],[5.25,.025,-8]],'#555262');
-    for(let z=320;z>-8;z-=8){const near=Math.max(-8,z-8);if((Math.floor((dist+z)/8)&1)===0)this.world([[-5.22,.03,near],[-5.22,.03,z],[5.22,.03,z],[5.22,.03,near]],'#575463');}
     for(const x of [-5.3,5.3])this.world([[x-.06,.06,-8],[x-.06,.06,420],[x+.06,.06,420],[x+.06,.06,-8]],'#f3dcb4');
     const phase=dist%11;
     for(let z=320-phase;z>-8;z-=11){if(z-4<-8)continue;for(const x of [-1.7,1.7])this.world([[x-.045,.07,z-4],[x-.045,.07,z],[x+.045,.07,z],[x+.045,.07,z-4]],'#c7bebd');}
-    // Quiet wear tracks and roadside curbs.
-    for(const x of [-3.85,-2.95,-.45,.45,2.95,3.85])this.world([[x-.07,.04,-8],[x-.07,.04,150],[x+.07,.04,150],[x+.07,.04,-8]],'#504e5e');
+    // Roadside curbs.
     for(let z=280-dist%9;z>-8;z-=9){if(z-4<-8)continue;for(const x of [-5.65,5.45])this.world([[x,.05,z-4],[x,.05,z],[x+.2,.05,z],[x+.2,.05,z-4]],'#e3d0b1');}
   }
   addFace(vertices,color,faces){faces.push({vertices,color,z:vertices.reduce((s,v)=>s+v[2],0)/vertices.length});}
