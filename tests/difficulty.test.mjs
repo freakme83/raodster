@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createGame,step,moveLane,speedAt,closingSpeed,encounterGapSeconds,intensityAt,TRAFFIC_SPEED_RANGES,CONFIG,TYPES} from '../src/physics.js';
+import {createGame,step,moveLane,speedAt,closingSpeed,encounterGapSeconds,intensityAt,TRAFFIC_SPEED_RANGES,CONFIG,TYPES,PRE_WALL_MIN_GAP} from '../src/physics.js';
 
 // Run the actual fixed-step scheduler with a harmless high flight so every
 // seeded traffic choice can be inspected without building an AI driver.
@@ -179,7 +179,8 @@ test('160 seeded schedules keep routes connected, traffic readable, and jump wal
         assert.deepEqual([...x.lanes].sort(),[-1,0,1]);
         assert.ok(x.vehicles.every(v=>v.height<=1.25&&v.length<=4));
         assert.ok(x.time-lastWall>22,`walls too close seed ${seed}`);
-        assert.ok(x.clearance>=4.15,`insufficient wall approach seed ${seed}`);
+        assert.equal(x.gapSeconds,PRE_WALL_MIN_GAP,`wall minimum changed seed ${seed}`);
+        assert.ok(x.clearance>=PRE_WALL_MIN_GAP-.05,`insufficient projected wall approach seed ${seed}`);
         if(groups[i+1]){
           assert.ok(groups[i+1].kind==='recovery',`wall lacks recovery row seed ${seed}`);
           assert.ok(groups[i+1].clearance>=2.4,`wall recovery too short seed ${seed}`);
