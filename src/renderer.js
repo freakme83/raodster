@@ -17,6 +17,8 @@ export class Renderer {
     this.poly([{x:0,y:hy-18},{x:w*.08,y:hy-28},{x:w*.17,y:hy-66},{x:w*.25,y:hy-49},{x:w*.33,y:hy-17},{x:w*.42,y:hy-37},{x:w*.53,y:hy-32},{x:w*.64,y:hy-58},{x:w*.73,y:hy-43},{x:w*.82,y:hy-69},{x:w,y:hy-20},{x:w,y:hy+70},{x:0,y:hy+70}],'#b8a2ad');
     this.poly([{x:0,y:hy+7},{x:w*.15,y:hy-15},{x:w*.27,y:hy+12},{x:w*.4,y:hy-9},{x:w*.55,y:hy+14},{x:w*.69,y:hy-14},{x:w*.81,y:hy+9},{x:w,y:hy-9},{x:w,y:h},{x:0,y:h}],'#a9b2a2');
     c.fillStyle='#9aaa98';c.fillRect(0,hy+38,w,h);
+    // Sparse distant architecture; never competes with traffic silhouettes.
+    c.fillStyle='#aca6ad';for(let i=0;i<12;i++){const x=w*(.36+i*.018),height=4+(i*19%17);c.fillRect(x,hy-height,w*.009,height+8);}
   }
   ground(g){
     const dist=g.distance;
@@ -27,8 +29,7 @@ export class Renderer {
     for(const x of [-5.3,5.3])this.world([[x-.06,.06,-8],[x-.06,.06,420],[x+.06,.06,420],[x+.06,.06,-8]],'#f3dcb4');
     const phase=dist%11;
     for(let z=320-phase;z>-8;z-=11){if(z-4<-8)continue;for(const x of [-1.7,1.7])this.world([[x-.045,.07,z-4],[x-.045,.07,z],[x+.045,.07,z],[x+.045,.07,z-4]],'#c7bebd');}
-    // Quiet wear tracks and roadside curbs.
-    for(const x of [-3.85,-2.95,-.45,.45,2.95,3.85])this.world([[x-.07,.04,-8],[x-.07,.04,150],[x+.07,.04,150],[x+.07,.04,-8]],'#504e5e');
+    // Roadside curbs.
     for(let z=280-dist%9;z>-8;z-=9){if(z-4<-8)continue;for(const x of [-5.65,5.45])this.world([[x,.05,z-4],[x,.05,z],[x+.2,.05,z],[x+.2,.05,z-4]],'#e3d0b1');}
   }
   addFace(vertices,color,faces){faces.push({vertices,color,z:vertices.reduce((s,v)=>s+v[2],0)/vertices.length});}
@@ -131,35 +132,17 @@ export class Renderer {
     this.poly([{x:p.x,y:p.y-size},{x:p.x+size*.77,y:p.y-size*.23},{x:p.x+size*.72,y:p.y+size*.47},{x:p.x,y:p.y+size},{x:p.x-size*.72,y:p.y+size*.47},{x:p.x-size*.77,y:p.y-size*.23}],'#d49e57');
     this.poly([{x:p.x,y:p.y-size*.69},{x:p.x+size*.4,y:p.y},{x:p.x,y:p.y+size*.56},{x:p.x-size*.4,y:p.y}],'#edd19c');
   }
-  bonusOrb(orb,time){
-    const p=this.point(orb.x,orb.y,orb.z);if(!p)return;
-    const c=this.c,r=Math.min(17,Math.max(4.5,p.s*.84)),halo=r*1.42;
-    const glow=c.createRadialGradient(p.x,p.y,r*.55,p.x,p.y,halo);
-    glow.addColorStop(0,'rgba(100,211,155,.3)');glow.addColorStop(1,'rgba(100,211,155,0)');
-    c.fillStyle=glow;c.fillRect(p.x-halo,p.y-halo,halo*2,halo*2);
-    const shimmer=this.reducedMotion?1:.97+.03*Math.sin(time*6);
-    const size=r*shimmer;
-    this.poly([{x:p.x,y:p.y-size},{x:p.x+size*.77,y:p.y-size*.23},{x:p.x+size*.72,y:p.y+size*.47},{x:p.x,y:p.y+size},{x:p.x-size*.72,y:p.y+size*.47},{x:p.x-size*.77,y:p.y-size*.23}],'#39a978');
-    this.poly([{x:p.x,y:p.y-size*.62},{x:p.x+size*.36,y:p.y},{x:p.x,y:p.y+size*.5},{x:p.x-size*.36,y:p.y}],'#a7dfb8');
-  }
   chargePop(pop){
     const p=this.point(pop.x,pop.y,pop.z);if(!p)return;
-    const duration=pop.bonus?CHARGE.bonusPopDuration:CHARGE.popDuration;
-    const t=Math.min(1,pop.age/duration),size=Math.min(pop.bonus?20:14,Math.max(4,p.s*(pop.bonus?1.05:.65)))*(1-t*.72);
-    const tint=pop.bonus?'76,196,132':'244,209,147';
-    if(pop.bonus){
-      const c=this.c,r=size*(1.15+t*1.5);
-      c.strokeStyle=`rgba(${tint},${.5*(1-t)})`;c.lineWidth=Math.max(1.2,size*.11);
-      c.beginPath();c.arc(p.x,p.y,r,0,Math.PI*2);c.stroke();
-    }
-    this.poly([{x:p.x,y:p.y-size},{x:p.x+size*.65,y:p.y},{x:p.x,y:p.y+size},{x:p.x-size*.65,y:p.y}],`rgba(${tint},${.8*(1-t)})`);
+    const t=Math.min(1,pop.age/CHARGE.popDuration),size=Math.min(14,Math.max(4,p.s*.65))*(1-t*.72);
+    this.poly([{x:p.x,y:p.y-size},{x:p.x+size*.65,y:p.y},{x:p.x,y:p.y+size},{x:p.x-size*.65,y:p.y}],`rgba(244,209,147,${.8*(1-t)})`);
   }
   scenery(g,faces){
     for(let i=0;i<19;i++){
       const z=330-i*20-g.distance%20;if(z<-6)continue;const worldIndex=Math.floor(g.distance/20)-i;
       for(const side of [-1,1]){
         const x=side*6.6;this.box(x,0,z,.11,.85,.12,'#ded9c0',faces);this.box(x,.59,z,.15,.16,.14,'#f9dcad',faces);
-        if(worldIndex%7===0){this.box(side*9.6,0,z,.07,3.8,.08,'#68777b',faces);this.box(side*9.1,3.72,z,1.1,.07,.1,'#68777b',faces);this.box(side*8.65,3.68,z,.32,.05,.16,'#ffedca',faces);}
+        if(worldIndex%5===0){this.box(side*9.1,0,z,.14,7,.14,'#68777b',faces);this.box(side*8.1,6.9,z,2.1,.12,.18,'#68777b',faces);this.box(side*7.25,6.8,z,.6,.08,.32,'#ffedca',faces);}
         if(worldIndex%3===0){const t=side*(11+((worldIndex%4+4)%4)*3);this.box(t,0,z,.25,1.2,.3,'#8f9381',faces);this.box(t,.7,z,1.5,.8,1.5,'#8eaa94',faces);this.box(t,1.2,z,1,.6,1,'#a3b69b',faces);}
       }
     }
@@ -179,7 +162,6 @@ export class Renderer {
     for(const v of [...g.traffic].sort((a,b)=>b.z-a.z))if(v.z>-6&&v.z<380)this.car(v,false,g,faces);
     const playerTransform=this.car({x:g.x,z:0,width:2.04,length:3.85,height:1.15,color:'#eeeae3'},true,g,faces);
     for(const arc of g.chargeArcs)for(const orb of arc.orbs)if(!orb.collected&&!orb.missed&&orb.z>-6&&orb.z<330)faces.push({z:orb.z,draw:()=>this.chargeOrb(orb,g.time)});
-    for(const orb of g.bonusOrbs)if(!orb.collected&&!orb.missed&&orb.z>-6&&orb.z<330)faces.push({z:orb.z,draw:()=>this.bonusOrb(orb,g.time)});
     faces.sort((a,b)=>b.z-a.z);for(const face of faces)if(face.draw)face.draw();else this.world(face.vertices,face.color);
     for(const pop of g.orbPops)this.chargePop(pop);
     this.lateralJets(g,playerTransform);
