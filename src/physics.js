@@ -55,11 +55,13 @@ function peakLength(r){
   return 10;
 }
 export const HIGH_MANEUVER = Object.freeze({after:60,peakChance:.30,minRows:3,maxRows:5,stayChance:.04,oppositeOuterChance:.72,transitionClearance:.36});
-export const PRE_WALL_MIN_GAP = 3.4;
+export const WALL_VARIANT_PROBABILITIES = Object.freeze({low:.60,van:.30,truck:.10});
+export const WALL_PRE_APPROACH_SECONDS = Object.freeze({low:2.7,van:3.0,truck:3.2});
 export function createGame(seed=Date.now()) {
   const chargeRandom=randomSeed((seed^0x9e3779b9)>>>0);
   const bonusRandom=randomSeed((seed^0x85ebca6b)>>>0);
-  return {time:0,distance:0,speed:27,pressure:1,charge:1,x:0,vx:0,lane:0,y:0,vy:0,roll:0,rollV:0,pitch:0,grounded:true,preload:0,thrusting:false,impact:0,instability:0,traffic:[],chargeArcs:[],bonusOrbs:[],orbPops:[],events:[],dead:false,reason:null,spawnIn:1.4,waves:0,lastWall:-100,random:randomSeed(seed),chargeRandom,nextChargeArcAt:firstArcAt(chargeRandom),nextChargeArcId:0,bonusRandom,nextBonusOrbAt:nextBonusDelay(bonusRandom),orbChain:null,lowChargeWarned:false,jumpPasses:0,airTime:0,lastSafeLane:0,lastWasWall:false,peakRows:0,peakTotalRows:0,peakManeuverStart:0,peakManeuverLength:0,peakManeuverOuter:0,maneuverRandom:randomSeed((seed^0x67e437a9)>>>0),lastPeak:-100,recoveryDue:false,optionalRows:0,optionalId:0,lastOptional:-100};
+  const wallRandom=randomSeed((seed^0xd1b54a35)>>>0);
+  return {time:0,distance:0,speed:27,pressure:1,charge:1,x:0,vx:0,lane:0,y:0,vy:0,roll:0,rollV:0,pitch:0,grounded:true,preload:0,thrusting:false,impact:0,instability:0,traffic:[],chargeArcs:[],bonusOrbs:[],orbPops:[],events:[],dead:false,reason:null,spawnIn:1.4,waves:0,lastWall:-100,random:randomSeed(seed),wallRandom,chargeRandom,nextChargeArcAt:firstArcAt(chargeRandom),nextChargeArcId:0,bonusRandom,nextBonusOrbAt:nextBonusDelay(bonusRandom),orbChain:null,lowChargeWarned:false,jumpPasses:0,airTime:0,lastSafeLane:0,lastWasWall:false,peakRows:0,peakTotalRows:0,peakManeuverStart:0,peakManeuverLength:0,peakManeuverOuter:0,maneuverRandom:randomSeed((seed^0x67e437a9)>>>0),lastPeak:-100,recoveryDue:false,optionalRows:0,optionalId:0,lastOptional:-100};
 }
 export function moveLane(g,dir){
   if(g.dead)return;
@@ -118,6 +120,12 @@ export function spawnWave(g){
   const maneuverRow=peak&&peakIndex>=g.peakManeuverStart&&peakIndex<g.peakManeuverStart+g.peakManeuverLength?peakIndex-g.peakManeuverStart:null;
   const kind=peak?'peak':optional?'optional':recovery?'recovery':'flow';
   const wall=peak&&g.peakRows===1&&g.time-g.lastWall>22&&r()<.55;
+  let wallVariant=null,wallTallLane=null;
+  if(wall){
+    const variantRoll=g.wallRandom();
+    wallVariant=variantRoll<WALL_VARIANT_PROBABILITIES.low?'low':variantRoll<WALL_VARIANT_PROBABILITIES.low+WALL_VARIANT_PROBABILITIES.van?'van':'truck';
+    if(wallVariant!=='low')wallTallLane=[-1,0,1][Math.floor(g.wallRandom()*3)];
+  }
   const lighterPeakRow=peak&&g.peakRows>1&&!wall&&r()<.13;
   const maxType=g.time<18?3:g.distance<900?4:6;
   const count=wall?3:peak?(lighterPeakRow?1:2):optional?2:recovery||g.time<6?1:(r()<.38+intensity*.5?2:1);
@@ -133,7 +141,8 @@ export function spawnWave(g){
     else {lanes.push(g.lastSafeLane);safeLane=nextSafeLane(g.lastSafeLane,r);}
   }
   const types=lanes.map(lane=>{
-    if(wall)return Math.floor(r()*2);
+    const lowWallType=wall?Math.floor(r()*2):null;
+    if(wall)return lane===wallTallLane?(wallVariant==='van'?3:wallVariant==='truck'?4:lowWallType):lowWallType;
     if(optional){
       const speed=g.optionalLaneSpeeds[lane+1];
       const choices=TRAFFIC_SPEED_RANGES.map((range,i)=>({range,i})).filter(({range,i})=>i<maxType&&speed>=range[0]&&speed<=range[1]).map(({i})=>i);
@@ -150,7 +159,8 @@ export function spawnWave(g){
   // Wall approach and post-wall recovery remain longer than ordinary traffic.
   const baseGap=encounterGapSeconds(g.time,kind);
   const variedGap=optional ? .48+r()*.06 : baseGap*(peak ? .9+r()*.2 : .82+r()*.36);
-  const seconds=Math.max(variedGap,wall?PRE_WALL_MIN_GAP:0,g.lastWasWall?2.45:0);
+  const wallGap=wall?WALL_PRE_APPROACH_SECONDS[wallVariant]:0;
+  const seconds=Math.max(variedGap,wallGap,g.lastWasWall?2.45:0);
   const gap=closing*seconds;
   const longestHalf=Math.max(...types.map(i=>TYPES[i].length/2));
   const safePreview=closing*2.6+longestHalf+CONFIG.halfLength;
@@ -206,7 +216,7 @@ export function spawnWave(g){
   lanes.forEach((lane,i)=>{
     const type=types[i],position=z+(wall?0:i*4);
     const worldSpeed=worldSpeeds[i];
-    g.traffic.push({...TYPES[type],type,lane,x:lane*CONFIG.lane,z:position,previousZ:position,passed:false,wall,wave:g.waves,kind,gapSeconds:seconds,safeLane,worldSpeed,optionalJumpCandidate:optional,optionalSequence:optional?g.optionalId:null,optionalRow:optional?3-g.optionalRows:null,highManeuverSequence:maneuverRow!==null?g.lastPeak:null,highManeuverRow:maneuverRow});
+    g.traffic.push({...TYPES[type],type,lane,x:lane*CONFIG.lane,z:position,previousZ:position,passed:false,wall,wallVariant,wave:g.waves,kind,gapSeconds:seconds,safeLane,worldSpeed,optionalJumpCandidate:optional,optionalSequence:optional?g.optionalId:null,optionalRow:optional?3-g.optionalRows:null,highManeuverSequence:maneuverRow!==null?g.lastPeak:null,highManeuverRow:maneuverRow});
   });
   if(wall)g.lastWall=g.time;
   if(recovery)g.recoveryDue=false;
