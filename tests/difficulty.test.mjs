@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createGame,step,moveLane,speedAt,closingSpeed,encounterGapSeconds,intensityAt,TRAFFIC_SPEED_RANGES,CONFIG,TYPES} from '../src/physics.js';
+import {createGame,step,moveLane,speedAt,closingSpeed,encounterGapSeconds,intensityAt,TRAFFIC_SPEED_RANGES,CONFIG,TYPES,WALL_VARIANT_PROBABILITIES,WALL_PRE_APPROACH_SECONDS} from '../src/physics.js';
 
 // Run the actual fixed-step scheduler with a harmless high flight so every
 // seeded traffic choice can be inspected without building an AI driver.
@@ -19,7 +19,7 @@ function observe(seed,seconds){
       const preceding=g.traffic.filter(v=>v.wave===before-1);
       const prevFront=Math.max(0,...preceding.map(v=>v.z+v.length/2));
       const nextRear=Math.min(...vehicles.map(v=>v.z-v.length/2));
-      groups.push({wave:before,time:g.time,speed:g.speed,closing:closingSpeed(g),vehicles,lanes:vehicles.map(v=>v.lane),kind:vehicles[0].kind,wall:vehicles[0].wall,safeLane:vehicles[0].safeLane,gapSeconds:vehicles[0].gapSeconds,spawnZ:Math.min(...vehicles.map(v=>v.z)),envelopeGap:nextRear-prevFront,clearance:(nextRear-prevFront)/closingSpeed(g),optionalSequence:vehicles[0].optionalSequence,optionalRow:vehicles[0].optionalRow});
+      groups.push({wave:before,time:g.time,speed:g.speed,closing:closingSpeed(g),vehicles,lanes:vehicles.map(v=>v.lane),kind:vehicles[0].kind,wall:vehicles[0].wall,wallVariant:vehicles[0].wallVariant,safeLane:vehicles[0].safeLane,gapSeconds:vehicles[0].gapSeconds,spawnZ:Math.min(...vehicles.map(v=>v.z)),envelopeGap:nextRear-prevFront,clearance:(nextRear-prevFront)/closingSpeed(g),optionalSequence:vehicles[0].optionalSequence,optionalRow:vehicles[0].optionalRow});
     }
     assert.equal(g.dead,false,`observer crashed for seed ${seed} at ${g.time}`);
   }
@@ -154,7 +154,7 @@ test('late ordinary decisions stay close together and peak sequences tighten fur
 });
 
 test('160 seeded schedules keep routes connected, traffic readable, and jump walls protected',()=>{
-  let vehicles=0,walls=0,longTrucks=0,holds=0,left=0,right=0,wallPeaks=0,postWallRecovery=0;
+  let vehicles=0,walls=0,lowWalls=0,vanWalls=0,truckWalls=0,longTrucks=0,holds=0,left=0,right=0,wallPeaks=0,postWallRecovery=0;
   for(let seed=0;seed<160;seed++){
     const {groups}=observe(seed,190),again=observe(seed,190).groups;
     const signature=list=>list.map(x=>[x.kind,x.lanes,x.vehicles.map(v=>v.type),x.wall,Math.round(x.time*120)]);
@@ -177,9 +177,27 @@ test('160 seeded schedules keep routes connected, traffic readable, and jump wal
         assert.equal(x.kind,'peak',`wall outside peak sequence seed ${seed}`);
         wallPeaks++;
         assert.deepEqual([...x.lanes].sort(),[-1,0,1]);
-        assert.ok(x.vehicles.every(v=>v.height<=1.25&&v.length<=4));
+        assert.ok(x.vehicles.every(v=>v.length<=7&&v.type!==5));
+        assert.ok(x.vehicles.every(v=>v.wallVariant===x.wallVariant));
+        const heights=x.vehicles.map(v=>v.height),tall=heights.filter(height=>height>1.25);
+        if(x.wallVariant==='low'){
+          lowWalls++;
+          assert.ok(x.vehicles.every(v=>v.type<=1&&v.height<=1.25));
+        }else if(x.wallVariant==='van'){
+          vanWalls++;
+          assert.equal(x.vehicles.filter(v=>v.type===3).length,1);
+          assert.equal(x.vehicles.filter(v=>v.type===4||v.type===5).length,0);
+          assert.equal(tall.length,1);
+        }else{
+          assert.equal(x.wallVariant,'truck');
+          truckWalls++;
+          assert.equal(x.vehicles.filter(v=>v.type===4).length,1);
+          assert.equal(x.vehicles.filter(v=>v.type===3||v.type===5).length,0);
+          assert.equal(tall.length,1);
+        }
         assert.ok(x.time-lastWall>22,`walls too close seed ${seed}`);
-        assert.ok(x.clearance>=4.15,`insufficient wall approach seed ${seed}`);
+        assert.equal(x.gapSeconds,WALL_PRE_APPROACH_SECONDS[x.wallVariant],`wall minimum changed seed ${seed}`);
+        assert.ok(x.clearance>=x.gapSeconds*.72,`insufficient projected wall approach seed ${seed}`);
         if(groups[i+1]){
           assert.ok(groups[i+1].kind==='recovery',`wall lacks recovery row seed ${seed}`);
           assert.ok(groups[i+1].clearance>=2.4,`wall recovery too short seed ${seed}`);
@@ -198,6 +216,9 @@ test('160 seeded schedules keep routes connected, traffic readable, and jump wal
     }
   }
   assert.ok(walls>100&&wallPeaks===walls&&walls-postWallRecovery<=160,{walls,wallPeaks,postWallRecovery});
+  assert.ok(lowWalls/walls>.52&&lowWalls/walls<.68,{lowWalls,walls});
+  assert.ok(vanWalls/walls>.22&&vanWalls/walls<.38,{vanWalls,walls});
+  assert.ok(truckWalls/walls>.04&&truckWalls/walls<.17,{truckWalls,walls});
   assert.ok(vehicles>30000,`traffic count ${vehicles}`);
   assert.ok(longTrucks>100,`late vehicle mix lacks long trucks: ${longTrucks}`);
   assert.ok(holds>0&&left>0&&right>0,{holds,left,right});
@@ -237,7 +258,7 @@ test('same-lane projected traffic envelopes stay separated in the forward view',
       }
       const blocking=visible.filter(v=>Math.abs(v.z)<v.length/2+CONFIG.halfLength);
       if(new Set(blocking.map(v=>v.lane)).size===3)
-        assert.ok(blocking.every(v=>v.wall&&v.height<=1.25),`projected all-lane barrier outside a jump wall, seed ${seed} at ${g.time.toFixed(1)}s`);
+        assert.ok(blocking.every(v=>v.wall&&v.wallVariant===blocking[0].wallVariant&&v.type!==5)&&blocking.some(v=>v.height<=1.25),`projected all-lane barrier outside a valid jump wall, seed ${seed} at ${g.time.toFixed(1)}s`);
     }
   }
   assert.ok(checked>5000);
